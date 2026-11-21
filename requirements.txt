@@ -1,0 +1,10 @@
+# Core Runtime Dependencies (Required for Universal Brain 3D v2.1, Built-in 3D Arena, and PBT Self-Play)
+# Note: All 7-process lock-free SeqLock/CRC32 shared-memory IPC, TCP_NODELAY binary wire bridges,
+#       EKF-SLAM, ballistic cerebellum, Oizumi-2016 Phi_G, and built-in 3D physics arena use the
+#       Python 3.10+ standard library plus NumPy and PyTorch only.
+numpy>=1.26.0
+torch>=2.2.0
+
+# Optional Dependencies (Only if enabling live USB Microphone STT coaching in companion_voice_io.py)
+# faster-whisper>=1.0.0
+# sounddevice>=0.4.6
