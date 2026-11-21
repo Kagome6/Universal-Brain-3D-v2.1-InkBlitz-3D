@@ -1,0 +1,2174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<style id="lumi-runtime">
+/* luminous.css */
+/*
+ * Luminous runtime stylesheet — injected once into every generated widget's
+ * <head> by the C++ widget agent (id="lumi-runtime"). Single Source of Truth
+ * for ALL design tokens and pre-baked .lumi-* component classes. The SI prompts
+ * (design.md / html_generation.jinja2 / chart.jinja2) must NOT re-declare these
+ * tokens or component CSS; they only reference them.
+ *
+ * Sections:
+ *   1. Web fonts (Google Sans Flex + Google Sans Code)
+ *   2. Light token :root (from previewer tokens.css, verbatim)
+ *   3. Dark token overrides — REMAPPED to :root so canvas/D3 readers of
+ *      getComputedStyle(document.documentElement) resolve dark values (D3).
+ *   4. Short diagram/chart aliases (bridge legacy --surface / --chart-N names).
+ *   5. In-scope pre-baked .lumi-* component classes.
+ */
+
+/* ============================================================
+ * 1. WEB FONTS & ICONOGRAPHY
+ *    Loads Google Sans Flex, Google Sans Code, and Material Symbols Outlined.
+ *    Enforces the dual-class iconography rendering protocol.
+ * ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:ital,wght@0,300..700;1,300..700&family=Google+Sans+Code:ital,wght,MONO@0,300..700,0..1;1,300..700,0..1&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+
+/* Dual-Class Iconography */
+.lumi-icon {
+  font-family: 'Luminous Symbols', 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  vertical-align: middle;
+}
+
+.material-icon {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  vertical-align: middle;
+}
+
+/* ============================================================
+ * 2. LIGHT TOKENS (:root)
+ * ============================================================ */
+:root {
+  --body-bg: transparent;
+  --ff-sans: 'Google Sans Flex', 'Google Sans Text', 'Google Sans', sans-serif;
+  --ff-mono: 'Google Sans Code', 'Google Sans Mono', monospace;
+
+  --lumi-sys-spacing--xxs: 2px;
+  --lumi-sys-spacing--xs: 4px;
+  --lumi-sys-spacing--s: 8px;
+  --lumi-sys-spacing--m: 12px;
+  --lumi-sys-spacing--l: 16px;
+  --lumi-sys-spacing--xl: 20px;
+  --lumi-sys-spacing--xxl: 24px;
+  --lumi-sys-spacing--3xl: 28px;
+  --lumi-sys-spacing--4xl: 36px;
+
+  --lumi-sys-shape--none: 0px;
+  --lumi-sys-shape--extra-small: 4px;
+  --lumi-sys-shape--small: 8px;
+  --lumi-sys-shape--medium: 12px;
+  --lumi-sys-shape--large: 16px;
+  --lumi-sys-shape--large-increased: 20px;
+  --lumi-sys-shape--large-max: 24px;
+  --lumi-sys-shape--xl: 28px;
+  --lumi-sys-shape--xl-increased: 32px;
+  --lumi-sys-shape--xl-max: 40px;
+  --lumi-sys-shape--xxl: 48px;
+  --lumi-sys-shape--xxl-increased: 56px;
+  --lumi-sys-shape--full: 999px;
+
+  --lumi-sys-elevation--level1: 0 0 20px 0 rgba(0, 0, 0, 0.04);
+  --lumi-sys-elevation--level2: 0 0 20px 0 rgba(0, 0, 0, 0.11);
+
+  --lumi-sys-color--surface: #fdfcfc;
+  --lumi-sys-color--surface-dim: #f2f0f0;
+  --lumi-sys-color--surface-bright: #ffffff;
+  --lumi-sys-color--surface-background: #fdfcfc;
+  --lumi-sys-color--surface-accent: #9dd2ff;
+  --lumi-sys-color--surface-container: #f2f0f0;
+  --lumi-sys-color--surface-container-high: #e6e6e6;
+  --lumi-sys-color--surface-translucent: rgba(255, 255, 255, 0.88);
+  --lumi-sys-color--on-surface: #000000;
+  --lumi-sys-color--on-surface-default: #000000;
+  --lumi-sys-color--on-surface-variant: rgba(0, 0, 0, 0.62);
+  --lumi-sys-color--on-surface-de-emphasis: rgba(0, 0, 0, 0.62);
+  --lumi-sys-color--on-surface-low: rgba(0, 0, 0, 0.08);
+  --lumi-sys-color--positive: #008052;
+  --lumi-sys-color--positive-container: #daf9d4;
+  --lumi-sys-color--on-positive-container: #009954;
+  --lumi-sys-color--error: #de2d29;
+  --lumi-sys-color--error-container: #ffdeec;
+  --lumi-sys-color--on-error-container: #de2d29;
+  --lumi-sys-color--accent: #9dd2ff;
+  --lumi-sys-color--accent-container: #dcf1ff;
+  --lumi-sys-color--accent-fixed: #3186ff;
+  --lumi-sys-color--primary: #3186ff;
+  --lumi-sys-color--on-primary: #ffffff;
+  --lumi-sys-color--black: #000000;
+  --lumi-sys-color--white: #ffffff;
+  --lumi-sys-color--outline: #727676;
+  --lumi-sys-color--stroke-default: #e3e3e3;
+
+  /* --- Luminous Typography Tokens: Display (Carbon SSoT) --- */
+  --lumi-sys-typography-type-scale--display-l-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--display-l-font-size: 2.625rem;
+  --lumi-sys-typography-type-scale--display-l-line-height: 3rem;
+  --lumi-sys-typography-type-scale--display-l-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--display-l-font-weight: 280;
+  --lumi-sys-typography-type-scale--display-l-font-wght: 280;
+  --lumi-sys-typography-type-scale--display-l-font-width: 100;
+  --lumi-sys-typography-type-scale--display-l-font-rond: 100;
+  --lumi-sys-typography-type-scale--display-l-opsz: 42;
+
+  --lumi-sys-typography-type-scale--display-m-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--display-m-font-size: 2.25rem;
+  --lumi-sys-typography-type-scale--display-m-line-height: 2.75rem;
+  --lumi-sys-typography-type-scale--display-m-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--display-m-font-weight: 320;
+  --lumi-sys-typography-type-scale--display-m-font-wght: 320;
+  --lumi-sys-typography-type-scale--display-m-font-width: 100;
+  --lumi-sys-typography-type-scale--display-m-font-rond: 100;
+  --lumi-sys-typography-type-scale--display-m-opsz: 36;
+
+  --lumi-sys-typography-type-scale--display-s-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--display-s-font-size: 2rem;
+  --lumi-sys-typography-type-scale--display-s-line-height: 2.375rem;
+  --lumi-sys-typography-type-scale--display-s-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--display-s-font-weight: 360;
+  --lumi-sys-typography-type-scale--display-s-font-wght: 360;
+  --lumi-sys-typography-type-scale--display-s-font-width: 100;
+  --lumi-sys-typography-type-scale--display-s-font-rond: 100;
+  --lumi-sys-typography-type-scale--display-s-opsz: 32;
+
+  /* --- Luminous Typography Tokens: Headline (Carbon SSoT) --- */
+  --lumi-sys-typography-type-scale--headline-l-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--headline-l-font-size: 1.75rem;
+  --lumi-sys-typography-type-scale--headline-l-line-height: 2.25rem;
+  --lumi-sys-typography-type-scale--headline-l-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--headline-l-font-weight: 350;
+  --lumi-sys-typography-type-scale--headline-l-font-wght: 350;
+  --lumi-sys-typography-type-scale--headline-l-font-width: 100;
+  --lumi-sys-typography-type-scale--headline-l-font-rond: 20;
+  --lumi-sys-typography-type-scale--headline-l-opsz: 28;
+
+  --lumi-sys-typography-type-scale--headline-m-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--headline-m-font-size: 1.5rem;
+  --lumi-sys-typography-type-scale--headline-m-line-height: 1.75rem;
+  --lumi-sys-typography-type-scale--headline-m-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--headline-m-font-weight: 380;
+  --lumi-sys-typography-type-scale--headline-m-font-wght: 380;
+  --lumi-sys-typography-type-scale--headline-m-font-width: 100;
+  --lumi-sys-typography-type-scale--headline-m-font-rond: 20;
+  --lumi-sys-typography-type-scale--headline-m-opsz: 24;
+
+  --lumi-sys-typography-type-scale--headline-s-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--headline-s-font-size: 1.25rem;
+  --lumi-sys-typography-type-scale--headline-s-line-height: 1.5rem;
+  --lumi-sys-typography-type-scale--headline-s-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--headline-s-font-weight: 470;
+  --lumi-sys-typography-type-scale--headline-s-font-wght: 470;
+  --lumi-sys-typography-type-scale--headline-s-font-width: 94;
+  --lumi-sys-typography-type-scale--headline-s-font-rond: 20;
+  --lumi-sys-typography-type-scale--headline-s-opsz: 20;
+
+  /* --- Luminous Typography Tokens: Body (Carbon SSoT) --- */
+  --lumi-sys-typography-type-scale--body-l-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--body-l-font-size: 1.0625rem;
+  --lumi-sys-typography-type-scale--body-l-line-height: 1.5rem;
+  --lumi-sys-typography-type-scale--body-l-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--body-l-font-weight: 400;
+  --lumi-sys-typography-type-scale--body-l-font-wght: 400;
+  --lumi-sys-typography-type-scale--body-l-font-width: 92;
+  --lumi-sys-typography-type-scale--body-l-font-rond: 0;
+  --lumi-sys-typography-type-scale--body-l-opsz: 17;
+
+  --lumi-sys-typography-type-scale--body-m-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--body-m-font-size: 0.9375rem;
+  --lumi-sys-typography-type-scale--body-m-line-height: 1.25rem;
+  --lumi-sys-typography-type-scale--body-m-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--body-m-font-weight: 400;
+  --lumi-sys-typography-type-scale--body-m-font-wght: 400;
+  --lumi-sys-typography-type-scale--body-m-font-width: 92;
+  --lumi-sys-typography-type-scale--body-m-font-rond: 0;
+  --lumi-sys-typography-type-scale--body-m-opsz: 15;
+
+  --lumi-sys-typography-type-scale--body-s-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--body-s-font-size: 0.8125rem;
+  --lumi-sys-typography-type-scale--body-s-line-height: 1.0625rem;
+  --lumi-sys-typography-type-scale--body-s-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--body-s-font-weight: 400;
+  --lumi-sys-typography-type-scale--body-s-font-wght: 400;
+  --lumi-sys-typography-type-scale--body-s-font-width: 92;
+  --lumi-sys-typography-type-scale--body-s-font-rond: 0;
+  --lumi-sys-typography-type-scale--body-s-opsz: 13;
+
+  /* --- Luminous Typography Tokens: Label (Carbon SSoT) --- */
+  --lumi-sys-typography-type-scale--label-l-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--label-l-font-size: 1.0625rem;
+  --lumi-sys-typography-type-scale--label-l-line-height: 1.5rem;
+  --lumi-sys-typography-type-scale--label-l-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--label-l-font-weight: 370;
+  --lumi-sys-typography-type-scale--label-l-font-wght: 370;
+  --lumi-sys-typography-type-scale--label-l-font-width: 92;
+  --lumi-sys-typography-type-scale--label-l-font-rond: 0;
+  --lumi-sys-typography-type-scale--label-l-opsz: 17;
+
+  --lumi-sys-typography-type-scale--label-m-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--label-m-font-size: 0.9375rem;
+  --lumi-sys-typography-type-scale--label-m-line-height: 1.25rem;
+  --lumi-sys-typography-type-scale--label-m-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--label-m-font-weight: 370;
+  --lumi-sys-typography-type-scale--label-m-font-wght: 370;
+  --lumi-sys-typography-type-scale--label-m-font-width: 92;
+  --lumi-sys-typography-type-scale--label-m-font-rond: 0;
+  --lumi-sys-typography-type-scale--label-m-opsz: 15;
+
+  --lumi-sys-typography-type-scale--label-s-font-name: 'Google Sans Flex';
+  --lumi-sys-typography-type-scale--label-s-font-size: 0.8125rem;
+  --lumi-sys-typography-type-scale--label-s-line-height: 1.25rem;
+  --lumi-sys-typography-type-scale--label-s-font-tracking: 0rem;
+  --lumi-sys-typography-type-scale--label-s-font-weight: 370;
+  --lumi-sys-typography-type-scale--label-s-font-wght: 370;
+  --lumi-sys-typography-type-scale--label-s-font-width: 92;
+  --lumi-sys-typography-type-scale--label-s-font-rond: 0;
+  --lumi-sys-typography-type-scale--label-s-opsz: 13;
+
+  --lumi-sys-opacity-state--hover: 0.08;
+  --lumi-sys-opacity-state--focus: 0.08;
+  --lumi-sys-opacity-state--pressed: 0.12;
+  --lumi-sys-opacity-state--disabled: 0.12;
+  --lumi-sys-opacity-state--disabled-label: 0.38;
+
+  --lumi-sys-color--code-background: #000000;
+  --lumi-sys-color--code-primary-text: #ffffff;
+  --lumi-sys-color--code-blue-text: #4fa0ff;
+  --lumi-sys-color--code-green-text: #60d673;
+  --lumi-sys-color--code-grey-text: #808080;
+  --lumi-sys-color--code-pink-text: #ff96da;
+  --lumi-sys-color--code-purple-text: #969dff;
+  --lumi-sys-color--code-red-text: #ff5a59;
+  --lumi-sys-color--code-yellow-text: #ffdb0f;
+
+  --lumi-sys-color--chart-series-1: #2575fc;
+  --lumi-sys-color--chart-series-2: #5b6e9e;
+  --lumi-sys-color--chart-series-3: #228a49;
+  --lumi-sys-color--chart-series-4: #62991b;
+  --lumi-sys-color--chart-series-5: #1e564d;
+  --lumi-sys-color--chart-series-6: #526a45;
+  --lumi-sys-color--chart-series-7: #2780c4;
+  --lumi-sys-color--chart-series-8: #997112;
+  --lumi-sys-color--chart-series-9: #705ec2;
+  --lumi-sys-color--chart-series-10: #c84288;
+}
+
+/* ============================================================
+ * 3. DARK TOKENS  (REMAPPED to :root — Decision D3)
+ *    Canvas / Chart.js / D3 read getComputedStyle(document.documentElement);
+ *    the theme-sync listener sets data-theme="dark" on <html>, so dark values
+ *    MUST live on :root (not scoped to body) to prevent black-chart regressions.
+ * ============================================================ */
+:root[data-theme="dark"],
+body.dark-mode,
+:root[data-theme="dark"] body {
+  --body-bg: #0f0f0f;
+  --lumi-sys-elevation--level1: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  --lumi-sys-elevation--level2: 0 0 20px 0 rgba(0, 0, 0, 0.40);
+
+  --lumi-sys-color--surface: #0f0f0f;
+  --lumi-sys-color--surface-dim: #141414;
+  --lumi-sys-color--surface-bright: #1c1c1c;
+  --lumi-sys-color--surface-background: #0f0f0f;
+  --lumi-sys-color--surface-accent: #14204f;
+  --lumi-sys-color--surface-container: #141414;
+  --lumi-sys-color--surface-container-high: #1c1c1c;
+  --lumi-sys-color--surface-translucent: rgba(24, 24, 27, 0.88);
+  --lumi-sys-color--on-surface: #e0e0e0;
+  --lumi-sys-color--on-surface-default: #e0e0e0;
+  --lumi-sys-color--on-surface-variant: rgba(255, 255, 255, 0.55);
+  --lumi-sys-color--on-surface-de-emphasis: rgba(255, 255, 255, 0.55);
+  --lumi-sys-color--on-surface-low: rgba(255, 255, 255, 0.12);
+  --lumi-sys-color--positive: #0ebc5f;
+  --lumi-sys-color--positive-container: #002220;
+  --lumi-sys-color--on-positive-container: #0ebc5f;
+  --lumi-sys-color--error: #ff4c45;
+  --lumi-sys-color--error-container: #3c0202;
+  --lumi-sys-color--on-error-container: #ff4c45;
+  --lumi-sys-color--accent: #1f3b9b;
+  --lumi-sys-color--accent-container: #192967;
+  --lumi-sys-color--accent-fixed: #3186ff;
+  --lumi-sys-color--primary: #9dd2ff;
+  --lumi-sys-color--on-primary: #192967;
+  --lumi-sys-color--black: #000000;
+  --lumi-sys-color--white: #ffffff;
+  --lumi-sys-color--outline: #9a9b9c;
+  --lumi-sys-color--stroke-default: #2d2f38;
+
+  --lumi-sys-color--code-background: #141414;
+  --lumi-sys-color--code-primary-text: #ffffff;
+  --lumi-sys-color--code-blue-text: #4fa0ff;
+  --lumi-sys-color--code-green-text: #60d673;
+  --lumi-sys-color--code-grey-text: #808080;
+  --lumi-sys-color--code-pink-text: #ff96da;
+  --lumi-sys-color--code-purple-text: #969dff;
+  --lumi-sys-color--code-red-text: #ff5a59;
+  --lumi-sys-color--code-yellow-text: #ffdb0f;
+
+  --lumi-sys-color--chart-series-1: #9dd2ff;
+  --lumi-sys-color--chart-series-2: #96a7d6;
+  --lumi-sys-color--chart-series-3: #50e389;
+  --lumi-sys-color--chart-series-4: #c8f585;
+  --lumi-sys-color--chart-series-5: #f5f2e6;
+  --lumi-sys-color--chart-series-6: #dcd8c0;
+  --lumi-sys-color--chart-series-7: #82c7ff;
+  --lumi-sys-color--chart-series-8: #f5d77f;
+  --lumi-sys-color--chart-series-9: #d9ceff;
+  --lumi-sys-color--chart-series-10: #ffa6d7;
+}
+
+/* ============================================================
+ * 3b. OS-LEVEL DARK FALLBACK  (prefers-color-scheme)
+ *     A prior refactor introduced this stylesheet and moved the dark tokens onto
+ *     :root[data-theme="dark"], but dropped the @media (prefers-color-scheme:
+ *     dark) trigger that widgets previously carried in their own <style>.
+ *     Inline widgets whose host sends no set-theme / data-theme message therefore
+ *     stayed on the light --surface (#fdfcfc), rendering white in dark mode.
+ *     Re-apply the dark values on OS dark; an explicit host data-theme="light"
+ *     still opts back to light. Keep in sync with the :root[data-theme="dark"]
+ *     block above.
+ * ============================================================ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --body-bg: #0f0f0f;
+    --lumi-sys-elevation--level1: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+    --lumi-sys-elevation--level2: 0 0 20px 0 rgba(0, 0, 0, 0.40);
+
+    --lumi-sys-color--surface: #0f0f0f;
+    --lumi-sys-color--surface-dim: #141414;
+    --lumi-sys-color--surface-bright: #1c1c1c;
+    --lumi-sys-color--surface-background: #0f0f0f;
+    --lumi-sys-color--surface-accent: #14204f;
+    --lumi-sys-color--surface-container: #141414;
+    --lumi-sys-color--surface-container-high: #1c1c1c;
+    --lumi-sys-color--surface-translucent: rgba(24, 24, 27, 0.88);
+    --lumi-sys-color--on-surface: #e0e0e0;
+    --lumi-sys-color--on-surface-default: #e0e0e0;
+    --lumi-sys-color--on-surface-variant: rgba(255, 255, 255, 0.55);
+    --lumi-sys-color--on-surface-de-emphasis: rgba(255, 255, 255, 0.55);
+    --lumi-sys-color--on-surface-low: rgba(255, 255, 255, 0.12);
+    --lumi-sys-color--positive: #0ebc5f;
+    --lumi-sys-color--positive-container: #002220;
+    --lumi-sys-color--on-positive-container: #0ebc5f;
+    --lumi-sys-color--error: #ff4c45;
+    --lumi-sys-color--error-container: #3c0202;
+    --lumi-sys-color--on-error-container: #ff4c45;
+    --lumi-sys-color--accent: #1f3b9b;
+    --lumi-sys-color--accent-container: #192967;
+    --lumi-sys-color--accent-fixed: #3186ff;
+    --lumi-sys-color--primary: #9dd2ff;
+    --lumi-sys-color--on-primary: #192967;
+    --lumi-sys-color--black: #000000;
+    --lumi-sys-color--white: #ffffff;
+    --lumi-sys-color--outline: #9a9b9c;
+    --lumi-sys-color--stroke-default: #2d2f38;
+
+    --lumi-sys-color--code-background: #141414;
+    --lumi-sys-color--code-primary-text: #ffffff;
+    --lumi-sys-color--code-blue-text: #4fa0ff;
+    --lumi-sys-color--code-green-text: #60d673;
+    --lumi-sys-color--code-grey-text: #808080;
+    --lumi-sys-color--code-pink-text: #ff96da;
+    --lumi-sys-color--code-purple-text: #969dff;
+    --lumi-sys-color--code-red-text: #ff5a59;
+    --lumi-sys-color--code-yellow-text: #ffdb0f;
+
+    --lumi-sys-color--chart-series-1: #9dd2ff;
+    --lumi-sys-color--chart-series-2: #96a7d6;
+    --lumi-sys-color--chart-series-3: #50e389;
+    --lumi-sys-color--chart-series-4: #c8f585;
+    --lumi-sys-color--chart-series-5: #f5f2e6;
+    --lumi-sys-color--chart-series-6: #dcd8c0;
+    --lumi-sys-color--chart-series-7: #82c7ff;
+    --lumi-sys-color--chart-series-8: #f5d77f;
+    --lumi-sys-color--chart-series-9: #d9ceff;
+    --lumi-sys-color--chart-series-10: #ffa6d7;
+  }
+}
+
+/* Dark mode slider thumb override */
+:root[data-theme="dark"] .lumi-slider::-webkit-slider-thumb,
+body.dark-mode .lumi-slider::-webkit-slider-thumb {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='14' y='6' width='4' height='20' rx='2' fill='%23ffffff'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .lumi-slider::-webkit-slider-thumb {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='14' y='6' width='4' height='20' rx='2' fill='%23ffffff'/%3E%3C/svg%3E");
+  }
+}
+
+/* ============================================================
+ * 4. SHORT DIAGRAM / CHART ALIASES
+ *    Legacy diagram.md and chart.jinja2 reference short names such as
+ *    --surface, --on-surface, --chart-1..10, --primary, --r-full. These MUST
+ *    resolve to the canonical --lumi-sys-color--* tokens (which flip in dark
+ *    mode) — otherwise every diagram var() falls back to black (historical
+ *    mass-regression bug #4). Light-hex fallbacks are a last resort only.
+ * ============================================================ */
+:root {
+  /* surfaces */
+  --surface: var(--lumi-sys-color--surface, #fdfcfc);
+  --surface-dim: var(--lumi-sys-color--surface-dim, #f2f0f0);
+  --surface-bright: var(--lumi-sys-color--surface-bright, #ffffff);
+  --surface-container: var(--lumi-sys-color--surface-container, #f2f0f0);
+  --surface-container-high: var(--lumi-sys-color--surface-container-high, #e6e6e6);
+  --surface-container-lowest: var(--lumi-sys-color--surface, #ffffff);
+  --surface-accent: var(--lumi-sys-color--surface-accent, #9dd2ff);
+  --surface-translucent: var(--lumi-sys-color--surface-translucent, rgba(255, 255, 255, 0.88));
+  --surface-glass: var(--lumi-sys-color--surface-translucent, rgba(255, 255, 255, 0.88));
+  /* foreground */
+  --on-surface: var(--lumi-sys-color--on-surface, #000000);
+  --on-surface-variant: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62));
+  --on-surface-low: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08));
+  /* accents / brand */
+  --primary: var(--lumi-sys-color--primary, #3186ff);
+  --primary-container: var(--lumi-sys-color--accent-container, #dcf1ff);
+  --accent: var(--lumi-sys-color--accent, #9dd2ff);
+  --accent-container: var(--lumi-sys-color--accent-container, #dcf1ff);
+  --accent-fixed: var(--lumi-sys-color--accent-fixed, #3186ff);
+  /* status */
+  --positive: var(--lumi-sys-color--positive, #008052);
+  --positive-container: var(--lumi-sys-color--positive-container, #daf9d4);
+  --error: var(--lumi-sys-color--error, #de2d29);
+  --error-container: var(--lumi-sys-color--error-container, #ffdeec);
+  /* structure */
+  --outline: var(--lumi-sys-color--outline, #727676);
+  --stroke-default: var(--lumi-sys-color--stroke-default, #e3e3e3);
+  /* chart series 1..10 */
+  --chart-1: var(--lumi-sys-color--chart-series-1, #2575fc);
+  --chart-2: var(--lumi-sys-color--chart-series-2, #5b6e9e);
+  --chart-3: var(--lumi-sys-color--chart-series-3, #228a49);
+  --chart-4: var(--lumi-sys-color--chart-series-4, #62991b);
+  --chart-5: var(--lumi-sys-color--chart-series-5, #1e564d);
+  --chart-6: var(--lumi-sys-color--chart-series-6, #526a45);
+  --chart-7: var(--lumi-sys-color--chart-series-7, #2780c4);
+  --chart-8: var(--lumi-sys-color--chart-series-8, #997112);
+  --chart-9: var(--lumi-sys-color--chart-series-9, #705ec2);
+  --chart-10: var(--lumi-sys-color--chart-series-10, #c84288);
+  /* code palette */
+  --code-background: var(--lumi-sys-color--code-background, #000000);
+  --code-primary-text: var(--lumi-sys-color--code-primary-text, #ffffff);
+  /* spacing shorthands */
+  --spacing-xs: var(--lumi-sys-spacing--xs, 4px);
+  --spacing-s: var(--lumi-sys-spacing--s, 8px);
+  --spacing-m: var(--lumi-sys-spacing--m, 12px);
+  --spacing-l: var(--lumi-sys-spacing--l, 16px);
+  --spacing-xl: var(--lumi-sys-spacing--xl, 20px);
+  /* radius shorthands */
+  --r-container: var(--lumi-sys-shape--xl-max, 40px);
+  --r-xl: var(--lumi-sys-shape--xl, 28px);
+  --r-l: var(--lumi-sys-shape--large-max, 24px);
+  --r-m: var(--lumi-sys-shape--large, 16px);
+  --r-s: var(--lumi-sys-shape--small, 8px);
+  --r-full: var(--lumi-sys-shape--full, 999px);
+}
+
+/* ============================================================
+ * 5. IN-SCOPE PRE-BAKED COMPONENT CLASSES
+ *    Interactive controls + simple display components only (Decision D5).
+ *    Complex components (timeline, sequence, stepper, pros-cons, hero, HUD,
+ *    hotspot, media grid) are intentionally excluded.
+ * ============================================================ */
+
+/* Global font rendering quality + themed surface backdrop.
+ * background/color MUST be set here (SSoT) so the widget backdrop follows the
+ * light/dark surface token deterministically. Without this, a widget whose
+ * model-generated markup forgets `background: var(--surface)` on its root
+ * container falls back to the browser-default white body, producing a broken
+ * dark mode (light header/chart area behind a dark card). Regression source:
+ * batch1 PB-A02 dark. */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  background: var(--body-bg, transparent) !important;
+  color: var(--on-surface) !important;
+  /* Auto-resizing iframe: content grows the frame, never scrolls the document.
+   * Model widgets already emit this; declared here as the SSoT default. */
+  overflow-y: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+}
+
+.widget-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding-inline: 0 !important;
+  box-sizing: border-box;
+}
+
+/* ============================================================
+ * SCROLLBAR DISCIPLINE (single source of truth)
+ *   Long lists/cards flow and let the iframe auto-resize (see the C++
+ *   NeutralizeInnerScroll pass, which removes accidental tiny scroll boxes).
+ *   For LEGITIMATE overflow that remains (wide tables, code, pan-containers,
+ *   large >=240px viewports) render a slim, theme-aware scrollbar.
+ *   One token carries the correct light/dark contrast (the auto-flipped
+ *   stroke token is too dark on #0f0f0f), referenced once = SSoT.
+ * ============================================================ */
+:root { --lumi-scrollbar-thumb: rgba(0, 0, 0, 0.20); }
+:root[data-theme="dark"], body.dark-mode { --lumi-scrollbar-thumb: rgba(255, 255, 255, 0.20); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --lumi-scrollbar-thumb: rgba(255, 255, 255, 0.20); }
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lumi-scrollbar-thumb) transparent;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: var(--lumi-scrollbar-thumb);
+  border-radius: var(--lumi-sys-shape--full, 999px);
+}
+
+/* --- Buttons --- */
+/* Universal button fallback (element specificity 0,0,1) — beats `* { padding: 0 }`
+   author resets (0,0,0) while still yielding to any author class selector (0,1,0). */
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lumi-sys-spacing--xs, 6px);
+  min-height: 36px;
+  padding: 6px 16px;
+  font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--on-surface, #000000);
+  background-color: var(--surface-bright, #ffffff);
+  border: 1px solid var(--stroke-default, #e3e3e3);
+  border-radius: var(--lumi-sys-shape--full, 999px);
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+button:hover {
+  background-color: var(--surface-container-high, #e6e6e6);
+}
+button.active, button.is-active, button.selected, button.is-selected, button[aria-pressed="true"], button[aria-selected="true"], button[aria-checked="true"] {
+  background-color: var(--accent-container, #dcf1ff);
+  color: var(--lumi-sys-color--on-surface-default, #000000);
+  border-color: var(--lumi-sys-color--primary, #3186ff);
+}
+
+.lumi-btn, [class^="lumi-btn-"], [class*=" lumi-btn-"] { display: inline-flex; align-items: center; justify-content: center; gap: var(--lumi-sys-spacing--s, 8px); min-height: 40px; padding: 0px 20px; font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 14px; font-weight: 500; line-height: 20px; border-radius: var(--lumi-sys-shape--full, 999px); border: 1px solid var(--lumi-sys-color--stroke-default, #e3e3e3); cursor: pointer; user-select: none; transition: background-color 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s; text-decoration: none; box-sizing: border-box; white-space: nowrap; }
+.lumi-btn:active, .lumi-btn.is-pressed, [class^="lumi-btn-"]:active, [class*=" lumi-btn-"]:active { transform: scale(0.98); }
+.lumi-btn--tonal, .lumi-btn-tonal, .lumi-btn--secondary, .lumi-btn-secondary, [class^="lumi-btn-"], [class*=" lumi-btn-"] { background-color: var(--lumi-sys-color--surface-bright, #ffffff); color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-btn--tonal:hover, .lumi-btn-tonal:hover, .lumi-btn--secondary:hover, .lumi-btn-secondary:hover, [class^="lumi-btn-"]:hover, [class*=" lumi-btn-"]:hover { background-color: var(--lumi-sys-color--surface-container-high, #e6e6e6); }
+.lumi-btn--accent, .lumi-btn-accent, .lumi-btn--primary, .lumi-btn-primary { background-color: var(--lumi-sys-color--accent, #9dd2ff); color: var(--lumi-sys-color--on-surface-default, #000000); border-color: transparent; }
+.lumi-btn--accent:hover, .lumi-btn-accent:hover, .lumi-btn--primary:hover, .lumi-btn-primary:hover { background-color: var(--lumi-sys-color--accent-container, #dcf1ff); }
+.lumi-btn--bright, .lumi-btn-bright { background-color: var(--lumi-sys-color--surface-bright, #ffffff); color: var(--lumi-sys-color--on-surface-default, #000000); border-color: var(--lumi-sys-color--stroke-default, #e3e3e3); box-shadow: none; }
+.lumi-btn--bright:hover, .lumi-btn-bright:hover { background-color: var(--lumi-sys-color--surface-container-high, #e6e6e6); }
+.lumi-btn--ghost, .lumi-btn-ghost, .lumi-btn--on-surface { background-color: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.04)); color: var(--lumi-sys-color--on-surface-default, #000000); border-color: transparent; }
+.lumi-btn--ghost:hover, .lumi-btn-ghost:hover, .lumi-btn--on-surface:hover { background-color: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); }
+.lumi-btn--translucent { background-color: rgba(255, 255, 255, 0.25); backdrop-filter: blur(12px); color: var(--lumi-sys-color--on-surface-default, #000000); border-color: rgba(255, 255, 255, 0.3); }
+.lumi-btn--translucent:hover { background-color: rgba(255, 255, 255, 0.35); }
+.lumi-btn--small, .lumi-btn-small { min-height: 36px; padding: 0px 16px; font-size: 13px; line-height: 18px; gap: var(--lumi-sys-spacing--xs, 4px); }
+.lumi-btn--xsmall, .lumi-btn-xsmall { min-height: 24px; padding: 0px 10px; font-size: 11px; line-height: 16px; gap: 4px; }
+/* Toggleable Buttons */
+.lumi-btn.is-selected,
+.lumi-btn.selected,
+.lumi-btn.is-active,
+.lumi-btn.active,
+.lumi-btn[aria-pressed="true"],
+.lumi-btn[aria-selected="true"],
+.lumi-btn[aria-checked="true"] {
+  background-color: var(--lumi-sys-color--accent-container, #dcf1ff);
+  color: var(--lumi-sys-color--on-surface-default, #000000);
+  border: 1px solid var(--lumi-sys-color--primary, #3186ff);
+  box-shadow: none;
+}
+.lumi-btn.is-selected:hover,
+.lumi-btn.selected:hover,
+.lumi-btn.is-active:hover,
+.lumi-btn.active:hover,
+.lumi-btn[aria-pressed="true"]:hover,
+.lumi-btn[aria-selected="true"]:hover,
+.lumi-btn[aria-checked="true"]:hover {
+  background-color: var(--lumi-sys-color--accent, #9dd2ff);
+  color: var(--lumi-sys-color--on-surface-default, #000000);
+}
+.lumi-btn.is-selected:active,
+.lumi-btn.selected:active,
+.lumi-btn.is-active:active,
+.lumi-btn.active:active,
+.lumi-btn[aria-pressed="true"]:active,
+.lumi-btn[aria-selected="true"]:active,
+.lumi-btn[aria-checked="true"]:active {
+  transform: scale(0.98);
+}
+
+:root[data-theme="dark"] .lumi-btn.is-selected,
+:root[data-theme="dark"] .lumi-btn.selected,
+:root[data-theme="dark"] .lumi-btn.is-active,
+:root[data-theme="dark"] .lumi-btn.active,
+:root[data-theme="dark"] .lumi-btn[aria-pressed="true"],
+:root[data-theme="dark"] .lumi-btn[aria-selected="true"],
+:root[data-theme="dark"] .lumi-btn[aria-checked="true"],
+body.dark-mode .lumi-btn.is-selected,
+body.dark-mode .lumi-btn.selected,
+body.dark-mode .lumi-btn.is-active,
+body.dark-mode .lumi-btn.active,
+body.dark-mode .lumi-btn[aria-pressed="true"],
+body.dark-mode .lumi-btn[aria-selected="true"],
+body.dark-mode .lumi-btn[aria-checked="true"],
+.lumi-theme-dark .lumi-btn.is-selected,
+.lumi-theme-dark .lumi-btn.selected,
+.lumi-theme-dark .lumi-btn.is-active,
+.lumi-theme-dark .lumi-btn.active,
+.lumi-theme-dark .lumi-btn[aria-pressed="true"],
+.lumi-theme-dark .lumi-btn[aria-selected="true"],
+.lumi-theme-dark .lumi-btn[aria-checked="true"] {
+  background-color: var(--lumi-sys-color--accent-container, #192967);
+  color: var(--lumi-sys-color--on-surface-default, #e0e0e0);
+  border: 1px solid var(--lumi-sys-color--primary, #9dd2ff);
+  box-shadow: none;
+}
+:root[data-theme="dark"] .lumi-btn.is-selected:hover,
+:root[data-theme="dark"] .lumi-btn.selected:hover,
+:root[data-theme="dark"] .lumi-btn.is-active:hover,
+:root[data-theme="dark"] .lumi-btn.active:hover,
+:root[data-theme="dark"] .lumi-btn[aria-pressed="true"]:hover,
+:root[data-theme="dark"] .lumi-btn[aria-selected="true"]:hover,
+:root[data-theme="dark"] .lumi-btn[aria-checked="true"]:hover,
+body.dark-mode .lumi-btn.is-selected:hover,
+body.dark-mode .lumi-btn.selected:hover,
+body.dark-mode .lumi-btn.is-active:hover,
+body.dark-mode .lumi-btn.active:hover,
+body.dark-mode .lumi-btn[aria-pressed="true"]:hover,
+body.dark-mode .lumi-btn[aria-selected="true"]:hover,
+body.dark-mode .lumi-btn[aria-checked="true"]:hover,
+.lumi-theme-dark .lumi-btn.is-selected:hover,
+.lumi-theme-dark .lumi-btn.selected:hover,
+.lumi-theme-dark .lumi-btn.is-active:hover,
+.lumi-theme-dark .lumi-btn.active:hover,
+.lumi-theme-dark .lumi-btn[aria-pressed="true"]:hover,
+.lumi-theme-dark .lumi-btn[aria-selected="true"]:hover,
+.lumi-theme-dark .lumi-btn[aria-checked="true"]:hover {
+  background-color: var(--lumi-sys-color--accent, #1f3b9b);
+  color: var(--lumi-sys-color--on-surface-default, #e0e0e0);
+}
+
+/* --- Switch --- */
+.lumi-switch { display: inline-flex; align-items: center; gap: var(--lumi-sys-spacing--s, 8px); cursor: pointer; font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 15px; color: var(--lumi-sys-color--on-surface-default, #000000); user-select: none; }
+.lumi-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 0px; height: 0px; pointer-events: none; }
+.lumi-switch__track { position: relative; display: inline-flex; align-items: center; width: 52px; height: 32px; background-color: var(--lumi-sys-color--surface-dim, #f2f0f0); border: 2px solid var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)); border-radius: var(--lumi-sys-shape--full, 999px); transition: background-color 0.2s, border-color 0.2s; flex-shrink: 0; box-sizing: border-box; }
+.lumi-switch__thumb, .lumi-switch__track::after { content: ""; position: absolute; top: 50%; left: 6px; transform: translateY(-50%); width: 16px; height: 16px; border-radius: 50%; background-color: var(--lumi-sys-color--on-surface-variant, #757575); transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.lumi-switch input[type="checkbox"]:checked + .lumi-switch__track { background-color: var(--lumi-sys-color--accent-fixed, #3186ff); border-color: transparent; }
+.lumi-switch input[type="checkbox"]:checked + .lumi-switch__track .lumi-switch__thumb, .lumi-switch input[type="checkbox"]:checked + .lumi-switch__track::after { left: 22px; width: 24px; height: 24px; background-color: rgb(255, 255, 255); }
+.lumi-switch input[type="checkbox"]:disabled + .lumi-switch__track { opacity: var(--lumi-sys-opacity-state--disabled, 0.38); cursor: not-allowed; }
+.lumi-switch--small .lumi-switch__track, .lumi-switch--mini .lumi-switch__track { width: 32px; height: 20px; }
+.lumi-switch--small .lumi-switch__thumb, .lumi-switch--small .lumi-switch__track::after, .lumi-switch--mini .lumi-switch__thumb, .lumi-switch--mini .lumi-switch__track::after { width: 12px; height: 12px; left: 2px; }
+.lumi-switch--small input[type="checkbox"]:checked + .lumi-switch__track .lumi-switch__thumb, .lumi-switch--small input[type="checkbox"]:checked + .lumi-switch__track::after, .lumi-switch--mini input[type="checkbox"]:checked + .lumi-switch__track .lumi-switch__thumb, .lumi-switch--mini input[type="checkbox"]:checked + .lumi-switch__track::after { left: 12px; width: 16px; height: 16px; }
+
+/* --- Checkbox --- */
+.lumi-checkbox-label { display: inline-flex; align-items: center; gap: var(--lumi-sys-spacing--s, 8px); cursor: pointer; font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 15px; color: var(--lumi-sys-color--on-surface-default, #000000); user-select: none; }
+.lumi-checkbox-label input[type="checkbox"] { position: absolute; opacity: 0; width: 0px; height: 0px; pointer-events: none; }
+.lumi-checkbox { position: relative; width: 24px; height: 24px; border-radius: var(--lumi-sys-shape--small, 8px); border: 2px solid var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); background-color: transparent; transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-sizing: border-box; }
+.lumi-checkbox-label:hover .lumi-checkbox { background-color: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.04)); border-color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-checkbox-label input[type="checkbox"]:checked ~ .lumi-checkbox, .lumi-checkbox-label input[type="checkbox"]:indeterminate ~ .lumi-checkbox, .lumi-checkbox.is-indeterminate { background-color: var(--lumi-sys-color--on-surface-default, #000000); border-color: transparent; }
+.lumi-checkbox .lumi-checkmark { font-size: 18px; line-height: 1; color: var(--lumi-sys-color--surface, #ffffff); fill: var(--lumi-sys-color--surface, #ffffff); display: none; user-select: none; }
+.lumi-checkbox-label input[type="checkbox"]:checked ~ .lumi-checkbox .lumi-checkmark, .lumi-checkbox-label input[type="checkbox"]:checked ~ .lumi-checkbox .lumi-checkbox__check { display: block; }
+.lumi-checkbox-label input[type="checkbox"]:indeterminate ~ .lumi-checkbox .lumi-checkbox__indeterminate, .lumi-checkbox.is-indeterminate .lumi-checkbox__indeterminate { display: block; }
+.lumi-checkbox-label input[type="checkbox"]:disabled ~ .lumi-checkbox, .lumi-checkbox-label input[type="checkbox"]:disabled ~ span { opacity: var(--lumi-sys-opacity-state--disabled, 0.38); cursor: not-allowed; }
+
+/* --- Slider --- */
+.lumi-slider-container { display: flex; align-items: center; gap: var(--lumi-sys-spacing--m, 16px); width: 100%; }
+.lumi-slider-row { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--xs, 4px); width: 100%; }
+.lumi-slider-label { font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 15px; font-weight: 400; color: var(--lumi-sys-color--on-surface-default, #000000); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lumi-slider { appearance: none; width: calc(100% + 28px); margin-left: -14px; margin-right: -14px; height: 40px; background: transparent; cursor: pointer; box-sizing: border-box; }
+.lumi-slider:focus { outline: none; }
+.lumi-slider::-webkit-slider-runnable-track { height: 4px; --thumb-center: calc(14px + (100% - 28px) * (var(--progress, 50%) / 100%)); --active-end: calc(var(--thumb-center) - 8px + (var(--progress, 50%) / 100%) * 6px); background-image: radial-gradient(circle at calc(100% - 18px) center, var(--lumi-sys-color--on-surface-variant, #757575) 2px, transparent 2.5px), linear-gradient( to right, transparent 0, transparent 14px, var(--lumi-sys-color--on-surface-default, #000000) 14px, var(--lumi-sys-color--on-surface-default, #000000) var(--active-end), transparent var(--active-end), transparent calc(var(--thumb-center) + 8px), var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)) calc(var(--thumb-center) + 8px), var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)) calc(100% - 16px), transparent calc(100% - 16px), transparent 100% ); border-radius: var(--lumi-sys-shape--full, 999px); border-width: medium; border-style: none; border-color: currentcolor; border-image: none; }
+.lumi-slider::-webkit-slider-thumb { appearance: none; width: 32px; height: 32px; border-radius: 50%; background-color: transparent; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='14' y='6' width='4' height='20' rx='2' fill='%23000000'/%3E%3C/svg%3E"); background-size: 32px 32px; background-repeat: no-repeat; background-position: center center; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; box-sizing: border-box; margin-top: -14px; cursor: pointer; transition: background-color 0.15s; }
+.lumi-slider:hover::-webkit-slider-thumb { background-color: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); }
+.lumi-slider:active::-webkit-slider-thumb { background-color: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.12)); }
+.lumi-slider:disabled { opacity: var(--lumi-sys-opacity-state--disabled, 0.38); cursor: not-allowed; }
+.lumi-slider:disabled::-webkit-slider-thumb { cursor: not-allowed; box-shadow: none; }
+.lumi-slider-value { display: flex; align-items: center; justify-content: center; min-width: 64px; height: 40px; padding: 0px 12px; background-color: var(--lumi-sys-color--surface-dim, #f2f0f0); border-radius: var(--lumi-sys-shape--medium, 16px); font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 15px; line-height: 20px; font-weight: 540; font-variation-settings: "wght" 540, "wdth" 92, "opsz" 15; font-variant-numeric: tabular-nums; color: var(--lumi-sys-color--on-surface-default, #000000); flex-shrink: 0; box-sizing: border-box; }
+
+/* --- Text input --- */
+.lumi-input-group { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--xs, 4px); width: 100%; }
+.lumi-input-label { font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 14px; font-weight: 500; line-height: 20px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-input { appearance: none; width: 100%; min-height: 48px; padding: 0px 16px; font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 15px; font-weight: 400; line-height: 22px; color: var(--lumi-sys-color--on-surface-default, #000000); background-color: var(--lumi-sys-color--surface-bright, #ffffff); border: 1px solid var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)); border-radius: var(--lumi-sys-shape--large, 16px); background-clip: padding-box; outline: none; box-sizing: border-box; transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s; }
+.lumi-input::placeholder { color: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); }
+.lumi-input:hover { border-color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-input:focus, .lumi-input:focus-visible { border-color: var(--lumi-sys-color--accent-fixed, #3186ff); box-shadow: 0 0 0 2px var(--lumi-sys-color--accent-container, rgba(49, 134, 255, 0.25)); }
+textarea.lumi-input, .lumi-input--area { min-height: 100px; padding: 12px 16px; resize: vertical; line-height: 22px; }
+.lumi-input.is-error, .lumi-input-group.is-error .lumi-input { border-color: var(--lumi-sys-color--error, #ff4c45); }
+.lumi-input-helper { font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif); font-size: 12px; line-height: 16px; color: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); }
+.lumi-input-group.is-error .lumi-input-helper, .lumi-input-helper--error { color: var(--lumi-sys-color--error, #ff4c45); }
+.lumi-input:disabled, .lumi-input.is-disabled { opacity: var(--lumi-sys-opacity-state--disabled, 0.38); background-color: var(--lumi-sys-color--surface-dim, #f2f0f0); cursor: not-allowed; }
+
+/* --- Focus ring --- */
+:focus-visible { outline: 2px solid var(--lumi-sys-color--on-surface-default, #000000) !important; outline-offset: 2px !important; box-shadow: none !important; }
+.lumi-btn:focus-visible, .lumi-switch input[type="checkbox"]:focus-visible + .lumi-switch__track, .lumi-checkbox-label input[type="checkbox"]:focus-visible ~ .lumi-checkbox, .lumi-slider:focus-visible::-webkit-slider-thumb, .lumi-input:focus-visible { outline: 2px solid var(--lumi-sys-color--on-surface-default, #000000); outline-offset: 2px; box-shadow: none; }
+[role="application"]:focus-visible, [aria-roledescription*="chart"]:focus-visible { outline: 2px solid var(--lumi-sys-color--primary, #3186ff) !important; outline-offset: 4px !important; }
+
+/* --- Typography: Display / Headline / Body / Label --- */
+.lumi-display-l { font-family: var(--lumi-sys-typography-type-scale--display-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--display-l-font-size, 2.625rem); line-height: var(--lumi-sys-typography-type-scale--display-l-line-height, 3rem); letter-spacing: var(--lumi-sys-typography-type-scale--display-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--display-l-font-weight, 280); font-variation-settings: "wght" 280, "wdth" 100, "opsz" 42, "ROND" 100; }
+.lumi-display-l-emphasized { font-family: var(--lumi-sys-typography-type-scale--display-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--display-l-font-size, 2.625rem); line-height: var(--lumi-sys-typography-type-scale--display-l-line-height, 3rem); letter-spacing: var(--lumi-sys-typography-type-scale--display-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--display-l-font-weight, 280); font-variation-settings: "wght" 280, "wdth" 100, "opsz" 42, "ROND" 100; }
+.lumi-display-m { font-family: var(--lumi-sys-typography-type-scale--display-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--display-m-font-size, 2.25rem); line-height: var(--lumi-sys-typography-type-scale--display-m-line-height, 2.75rem); letter-spacing: var(--lumi-sys-typography-type-scale--display-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--display-m-font-weight, 320); font-variation-settings: "wght" 320, "wdth" 100, "opsz" 36, "ROND" 100; }
+.lumi-display-m-emphasized { font-family: var(--lumi-sys-typography-type-scale--display-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--display-m-font-size, 2.25rem); line-height: var(--lumi-sys-typography-type-scale--display-m-line-height, 2.75rem); letter-spacing: var(--lumi-sys-typography-type-scale--display-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--display-m-font-weight, 320); font-variation-settings: "wght" 320, "wdth" 100, "opsz" 36, "ROND" 100; }
+.lumi-display-s { font-family: var(--lumi-sys-typography-type-scale--display-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--display-s-font-size, 2rem); line-height: var(--lumi-sys-typography-type-scale--display-s-line-height, 2.375rem); letter-spacing: var(--lumi-sys-typography-type-scale--display-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--display-s-font-weight, 360); font-variation-settings: "wght" 360, "wdth" 100, "opsz" 32, "ROND" 100; }
+.lumi-display-s-emphasized { font-family: var(--lumi-sys-typography-type-scale--display-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--display-s-font-size, 2rem); line-height: var(--lumi-sys-typography-type-scale--display-s-line-height, 2.375rem); letter-spacing: var(--lumi-sys-typography-type-scale--display-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--display-s-font-weight, 360); font-variation-settings: "wght" 360, "wdth" 100, "opsz" 32, "ROND" 100; }
+.lumi-headline-l { font-family: var(--lumi-sys-typography-type-scale--headline-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--headline-l-font-size, 1.75rem); line-height: var(--lumi-sys-typography-type-scale--headline-l-line-height, 2.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--headline-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--headline-l-font-weight, 350); font-variation-settings: "wght" 350, "wdth" 100, "opsz" 28, "ROND" 20; }
+.lumi-headline-l-emphasized { font-family: var(--lumi-sys-typography-type-scale--headline-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--headline-l-font-size, 1.75rem); line-height: var(--lumi-sys-typography-type-scale--headline-l-line-height, 2.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--headline-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--headline-l-font-weight, 350); font-variation-settings: "wght" 350, "wdth" 100, "opsz" 28, "ROND" 20; }
+.lumi-headline-m { font-family: var(--lumi-sys-typography-type-scale--headline-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--headline-m-font-size, 1.5rem); line-height: var(--lumi-sys-typography-type-scale--headline-m-line-height, 1.75rem); letter-spacing: var(--lumi-sys-typography-type-scale--headline-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--headline-m-font-weight, 380); font-variation-settings: "wght" 380, "wdth" 100, "opsz" 24, "ROND" 20; }
+.lumi-headline-m-emphasized { font-family: var(--lumi-sys-typography-type-scale--headline-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--headline-m-font-size, 1.5rem); line-height: var(--lumi-sys-typography-type-scale--headline-m-line-height, 1.75rem); letter-spacing: var(--lumi-sys-typography-type-scale--headline-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--headline-m-font-weight, 380); font-variation-settings: "wght" 380, "wdth" 100, "opsz" 24, "ROND" 20; }
+.lumi-headline-s { font-family: var(--lumi-sys-typography-type-scale--headline-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--headline-s-font-size, 1.25rem); line-height: var(--lumi-sys-typography-type-scale--headline-s-line-height, 1.5rem); letter-spacing: var(--lumi-sys-typography-type-scale--headline-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--headline-s-font-weight, 470); font-variation-settings: "wght" 470, "wdth" 94, "opsz" 20, "ROND" 20; }
+.lumi-headline-s-emphasized { font-family: var(--lumi-sys-typography-type-scale--headline-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--headline-s-font-size, 1.25rem); line-height: var(--lumi-sys-typography-type-scale--headline-s-line-height, 1.5rem); letter-spacing: var(--lumi-sys-typography-type-scale--headline-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--headline-s-font-weight, 470); font-variation-settings: "wght" 470, "wdth" 94, "opsz" 20, "ROND" 20; }
+.lumi-body-l { font-family: var(--lumi-sys-typography-type-scale--body-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--body-l-font-size, 1.0625rem); line-height: var(--lumi-sys-typography-type-scale--body-l-line-height, 1.5rem); letter-spacing: var(--lumi-sys-typography-type-scale--body-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--body-l-font-weight, 400); font-variation-settings: "wght" 400, "wdth" 92, "opsz" 17; }
+.lumi-body-l-emphasized { font-family: var(--lumi-sys-typography-type-scale--body-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--body-l-font-size, 1.0625rem); line-height: var(--lumi-sys-typography-type-scale--body-l-line-height, 1.5rem); letter-spacing: var(--lumi-sys-typography-type-scale--body-l-font-tracking, 0rem); font-weight: 540; font-variation-settings: "wght" 540, "wdth" 92, "opsz" 17; font-variant-numeric: tabular-nums; }
+.lumi-body-m { font-family: var(--lumi-sys-typography-type-scale--body-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--body-m-font-size, 0.9375rem); line-height: var(--lumi-sys-typography-type-scale--body-m-line-height, 1.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--body-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--body-m-font-weight, 400); font-variation-settings: "wght" 400, "wdth" 92, "opsz" 15; }
+.lumi-body-m-emphasized { font-family: var(--lumi-sys-typography-type-scale--body-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--body-m-font-size, 0.9375rem); line-height: var(--lumi-sys-typography-type-scale--body-m-line-height, 1.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--body-m-font-tracking, 0rem); font-weight: 540; font-variation-settings: "wght" 540, "wdth" 92, "opsz" 15; font-variant-numeric: tabular-nums; }
+.lumi-body-s { font-family: var(--lumi-sys-typography-type-scale--body-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--body-s-font-size, 0.8125rem); line-height: var(--lumi-sys-typography-type-scale--body-s-line-height, 1.0625rem); letter-spacing: var(--lumi-sys-typography-type-scale--body-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--body-s-font-weight, 400); font-variation-settings: "wght" 400, "wdth" 92, "opsz" 13; }
+.lumi-body-s-emphasized { font-family: var(--lumi-sys-typography-type-scale--body-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--body-s-font-size, 0.8125rem); line-height: var(--lumi-sys-typography-type-scale--body-s-line-height, 1.0625rem); letter-spacing: var(--lumi-sys-typography-type-scale--body-s-font-tracking, 0rem); font-weight: 540; font-variation-settings: "wght" 540, "wdth" 92, "opsz" 13; font-variant-numeric: tabular-nums; }
+.lumi-label-l { font-family: var(--lumi-sys-typography-type-scale--label-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--label-l-font-size, 1.0625rem); line-height: var(--lumi-sys-typography-type-scale--label-l-line-height, 1.5rem); letter-spacing: var(--lumi-sys-typography-type-scale--label-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--label-l-font-weight, 370); font-variation-settings: "wght" 370, "wdth" 92, "opsz" 17; }
+.lumi-label-l-emphasized { font-family: var(--lumi-sys-typography-type-scale--label-l-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--label-l-font-size, 1.0625rem); line-height: var(--lumi-sys-typography-type-scale--label-l-line-height, 1.5rem); letter-spacing: var(--lumi-sys-typography-type-scale--label-l-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--label-l-font-weight, 370); font-variation-settings: "wght" 370, "wdth" 92, "opsz" 17; }
+.lumi-label-m { font-family: var(--lumi-sys-typography-type-scale--label-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--label-m-font-size, 0.9375rem); line-height: var(--lumi-sys-typography-type-scale--label-m-line-height, 1.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--label-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--label-m-font-weight, 370); font-variation-settings: "wght" 370, "wdth" 92, "opsz" 15; }
+.lumi-label-m-emphasized { font-family: var(--lumi-sys-typography-type-scale--label-m-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--label-m-font-size, 0.9375rem); line-height: var(--lumi-sys-typography-type-scale--label-m-line-height, 1.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--label-m-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--label-m-font-weight, 370); font-variation-settings: "wght" 370, "wdth" 92, "opsz" 15; }
+.lumi-label-s { font-family: var(--lumi-sys-typography-type-scale--label-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--label-s-font-size, 0.8125rem); line-height: var(--lumi-sys-typography-type-scale--label-s-line-height, 1.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--label-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--label-s-font-weight, 370); font-variation-settings: "wght" 370, "wdth" 92, "opsz" 13; }
+.lumi-label-s-emphasized { font-family: var(--lumi-sys-typography-type-scale--label-s-font-name, 'Google Sans Flex', sans-serif); font-size: var(--lumi-sys-typography-type-scale--label-s-font-size, 0.8125rem); line-height: var(--lumi-sys-typography-type-scale--label-s-line-height, 1.25rem); letter-spacing: var(--lumi-sys-typography-type-scale--label-s-font-tracking, 0rem); font-weight: var(--lumi-sys-typography-type-scale--label-s-font-weight, 370); font-variation-settings: "wght" 370, "wdth" 92, "opsz" 13; }
+
+/* --- Typography: Monospace / Extended (Google Sans Code) --- */
+.lumi-blockquote { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-style: italic; font-size: 22px; line-height: 30px; font-weight: 300; font-variation-settings: "wght" 300, "opsz" 22, "MONO" 0; }
+.lumi-takeaway { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-style: italic; font-size: 17px; line-height: 24px; font-weight: 400; font-variation-settings: "wght" 400, "opsz" 17, "MONO" 0; }
+.lumi-caption { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-style: italic; font-size: 13px; line-height: 20px; font-weight: 400; font-variation-settings: "wght" 400, "opsz" 13, "MONO" 0; }
+.lumi-code { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-size: 15px; line-height: 20px; font-weight: 400; font-variation-settings: "wght" 400, "MONO" 1; }
+.lumi-bullet { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-size: 15px; line-height: 24px; font-weight: 650; font-variation-settings: "wght" 650, "MONO" 1; }
+
+/* --- Cards & attribution --- */
+.lumi-summary-card { padding: var(--lumi-sys-spacing--l, 16px); background-color: var(--lumi-sys-color--surface-bright, #ffffff); border-radius: var(--lumi-sys-shape--medium, 12px); color: var(--lumi-sys-color--on-surface-default, #000000); font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 15px; line-height: 20px; box-sizing: border-box; }
+.lumi-link-card { display: flex; align-items: center; justify-content: space-between; padding: var(--lumi-sys-spacing--l, 16px); background-color: var(--lumi-sys-color--surface-bright, #ffffff); border-radius: var(--lumi-sys-shape--medium, 12px); text-decoration: none; color: var(--lumi-sys-color--on-surface-default, #000000); transition: background-color 0.15s; box-sizing: border-box; }
+.lumi-link-card:hover { background-color: var(--lumi-sys-color--surface-container-high, #e6e6e6); }
+.lumi-attribution-buffer { margin-top: var(--lumi-sys-spacing--xxl, 24px); font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 13px; color: var(--lumi-sys-color--on-surface-de-emphasis, rgba(0, 0, 0, 0.62)); }
+.lumi-card { background-color: var(--lumi-sys-color--surface-bright, #ffffff); border-radius: var(--lumi-sys-shape--xl-max, 40px); padding: var(--lumi-sys-spacing--3xl, 28px); display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--s, 8px); width: 100%; box-sizing: border-box; }
+.lumi-card.is-prominent, .lumi-card--prominent, .lumi-card.surface-dim { background-color: var(--lumi-sys-color--surface-dim, #f2f0f0); }
+.lumi-card-title { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 20px; font-weight: 500; font-variation-settings: "wght" 470, "wdth" 94, "opsz" 20; color: var(--lumi-sys-color--on-surface, #000000); margin: 0px; }
+.lumi-card-subtitle { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 13px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 13; color: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); margin: 0; }
+.lumi-card-body { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 15px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 15; color: var(--lumi-sys-color--on-surface, #000000); margin: var(--lumi-sys-spacing--xs, 4px) 0 0 0; }
+.lumi-overlay-card { background-color: var(--surface-translucent, rgba(255, 255, 255, 0.88)); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--stroke-default); border-radius: var(--lumi-sys-shape--medium, 12px); padding: var(--lumi-sys-spacing--m, 12px) var(--lumi-sys-spacing--l, 16px); color: var(--on-surface); box-shadow: var(--lumi-sys-elevation--level1); box-sizing: border-box; }
+
+/* --- Progress bar --- */
+.lumi-progress-tracker { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--xs, 4px); width: 100%; }
+.lumi-progress-bar { width: 100%; height: 8px; background-color: var(--lumi-sys-color--stroke-default, #e3e3e3); border: 1px solid transparent; box-sizing: border-box; border-radius: var(--lumi-sys-shape--full, 999px); overflow: hidden; }
+.lumi-progress-fill { height: 100%; background-color: var(--lumi-sys-color--accent-fixed, #3186ff); border-radius: var(--lumi-sys-shape--full, 999px); transition: width 0.3s; }
+
+/* --- Accordion (card group variant) --- */
+.lumi-accordion-group { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--s, 8px); }
+.lumi-accordion-group .lumi-accordion-item { background-color: var(--lumi-sys-color--surface-container, #f2f0f0); border-radius: var(--lumi-sys-shape--medium, 12px); overflow: hidden; transition: background-color 0.15s; }
+.lumi-accordion-group .lumi-accordion-header { padding: var(--lumi-sys-spacing--l, 16px); font-family: var(--ff-sans, sans-serif); font-size: 15px; font-weight: 540; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-accordion-group .lumi-accordion-chevron { transition: transform 0.2s; font-size: 12px; }
+.lumi-accordion-group .lumi-accordion-item.active .lumi-accordion-chevron { transform: rotate(180deg); }
+.lumi-accordion-group .lumi-accordion-body { display: none; padding: 0 var(--lumi-sys-spacing--l, 16px) var(--lumi-sys-spacing--l, 16px) var(--lumi-sys-spacing--l, 16px); font-family: var(--ff-sans, sans-serif); font-size: 15px; color: var(--lumi-sys-color--on-surface-de-emphasis, rgba(0, 0, 0, 0.62)); line-height: 20px; }
+.lumi-accordion-group .lumi-accordion-item.active .lumi-accordion-body { display: block; }
+
+/* --- Accordion (borderless list variant) --- */
+.lumi-accordion { display: flex; flex-direction: column; width: 100%; border-top: 1px solid var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); }
+.lumi-accordion-item { display: flex; flex-direction: column; width: 100%; background: transparent; border-radius: 0px; border-bottom: 1px solid var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); }
+.lumi-accordion-header { display: flex; justify-content: space-between; align-items: center; padding: var(--lumi-sys-spacing--xl, 20px) 0; cursor: pointer; user-select: none; }
+.lumi-accordion-title { margin: 0px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-accordion-item.active .lumi-accordion-content { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--l, 16px); }
+.lumi-accordion-content { display: none; padding-bottom: var(--lumi-sys-spacing--xxl, 24px); }
+.lumi-accordion-field { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--xxs, 2px); }
+.lumi-accordion-field-label { margin: 0px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-accordion-field-val { margin: 0px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+
+/* --- Segmented control --- */
+.lumi-segmented-group { display: flex; background-color: var(--lumi-sys-color--surface-container, #f2f0f0); padding: 4px; border-radius: var(--lumi-sys-shape--full, 999px); gap: 4px; }
+.lumi-segmented-btn { flex: 1 1 0%; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--lumi-sys-shape--full, 999px); background-color: transparent; font-family: var(--ff-sans, sans-serif); font-size: 14px; font-weight: 510; cursor: pointer; color: var(--lumi-sys-color--on-surface-de-emphasis, rgba(0, 0, 0, 0.62)); transition: 0.2s; }
+.lumi-segmented-btn.is-active, .lumi-segmented-btn.active, .lumi-segmented-btn.is-selected, .lumi-segmented-btn.selected, .lumi-segmented-btn[aria-pressed="true"], .lumi-segmented-btn[aria-selected="true"], .lumi-segmented-btn[aria-checked="true"] { background-color: var(--lumi-sys-color--surface-bright, #ffffff); color: var(--lumi-sys-color--on-surface-default, #000000); box-shadow: var(--lumi-sys-elevation--level1); }
+
+/* --- Tabs --- */
+.lumi-tab-group { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--4xl, 36px); width: 100%; }
+.lumi-tab-bar { display: flex; gap: var(--lumi-sys-spacing--l, 16px); padding-bottom: 0px; overflow-x: auto; scrollbar-width: none; }
+.lumi-tab-bar::-webkit-scrollbar { display: none; }
+.lumi-tab { height: 40px; padding: 0 var(--lumi-sys-spacing--xl, 20px); display: flex; align-items: center; justify-content: center; font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 17px; line-height: 24px; font-weight: 370; font-variation-settings: "wght" 370, "wdth" 92, "opsz" 17; color: var(--lumi-sys-color--on-surface-de-emphasis, rgba(0, 0, 0, 0.62)); background: transparent; border: 1px solid transparent; border-radius: var(--lumi-sys-shape--full, 999px); cursor: pointer; white-space: nowrap; transition: background-color 0.15s, color 0.15s; }
+.lumi-tab:hover { color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-tab.active, .lumi-tab.is-active, .lumi-tab.is-selected, .lumi-tab.selected, .lumi-tab[aria-pressed="true"], .lumi-tab[aria-selected="true"], .lumi-tab[aria-checked="true"] { background-color: var(--lumi-sys-color--surface-container-high, #f2f0f0); color: var(--lumi-sys-color--on-surface-default, #000000); font-weight: 510; font-variation-settings: "wght" 510, "wdth" 92, "opsz" 17; }
+.lumi-tab-content { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--m, 12px); padding-top: 0px; padding-bottom: 0px; }
+.lumi-tab-content .lumi-body-l-emphasized, .lumi-tab-content .lumi-headline-s { margin: 0px; }
+.lumi-tab-content .lumi-body-l { margin: 0px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+
+/* --- Callout / pullquote --- */
+.lumi-callout { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--xs, 4px); width: 100%; }
+.lumi-callout .lumi-body-l-emphasized { margin: 0px; }
+.lumi-pullquote { display: flex; gap: var(--lumi-sys-spacing--xl, 20px); width: 100%; margin: 0px; }
+.lumi-pullquote-mark { width: 30px; height: 22px; flex-shrink: 0; margin-top: 4px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-pullquote-body { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--l, 16px); flex: 1 1 0%; min-width: 0px; }
+p.lumi-pullquote-text, .lumi-pullquote-text { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-style: italic; font-weight: 300; font-variation-settings: "wght" 300, "opsz" 22, "MONO" 0; color: var(--lumi-sys-color--on-surface-default, #000000); margin: 0px; font-size: 22px !important; line-height: 30px !important; }
+.lumi-pullquote-cite { display: flex; flex-direction: column; font-style: normal; }
+.lumi-pullquote-cite .lumi-de-emphasis { color: var(--lumi-sys-color--on-surface-de-emphasis, rgba(0, 0, 0, 0.62)); }
+
+/* --- Data table (simple) --- */
+.lumi-data-table-container { width: 100%; overflow-x: auto; border-radius: var(--lumi-sys-shape--medium, 12px); border: 1px solid var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)); }
+.lumi-data-table { width: 100%; border-collapse: collapse; font-family: var(--ff-sans, sans-serif); font-size: 14px; text-align: left; }
+.lumi-data-table th { padding: 12px 16px; font-weight: 600; background-color: var(--lumi-sys-color--surface-container, #f2f0f0); border-bottom: 1px solid var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)); color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-data-table td { padding: 12px 16px; border-bottom: 1px solid var(--lumi-sys-color--stroke-default, rgba(0, 0, 0, 0.12)); color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-data-table tr:last-child td { border-bottom-width: medium; border-bottom-style: none; border-bottom-color: currentcolor; }
+
+/* --- Table widget (prose-style) --- */
+.lumi-table-widget { display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--xxl, 24px); width: 100%; }
+.lumi-table-title { margin: 0px; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-table { width: 100%; border-collapse: collapse; font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); text-align: left; }
+.lumi-table th { padding: 12px 16px 12px 0px; font-size: 17px; line-height: 24px; font-weight: 540; font-variation-settings: "wght" 540, "wdth" 92, "opsz" 17; color: var(--lumi-sys-color--on-surface-default, #000000); border-bottom: 1px solid var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); }
+.lumi-table td { padding: 16px 16px 16px 0px; font-size: 17px; line-height: 24px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 17; color: var(--lumi-sys-color--on-surface-default, #000000); border-bottom: 1px solid var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); }
+.lumi-table td:last-child, .lumi-table th:last-child { padding-right: 0px; }
+.lumi-table tr.lumi-table-ellipsis-row td { padding: 16px 0 0; border-bottom-width: medium; border-bottom-style: none; border-bottom-color: currentcolor; color: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); }
+
+/* --- Luminous Spec Table (Figma 8543-1878) --- */
+.lumi-spec-table-container { width: 100%; overflow-x: auto; background: transparent; }
+.lumi-spec-table { width: 100%; border-collapse: collapse; font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); text-align: left; background: transparent; }
+.lumi-spec-table th { padding: 12px 28px 16px 0px; font-size: 17px; line-height: 24px; font-weight: 540; font-variation-settings: "wght" 540, "wdth" 100, "opsz" 17; color: var(--lumi-sys-color--on-surface-default, #000000); border-bottom: 1px solid var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); background: transparent; }
+.lumi-spec-table td { padding: 16px 28px 16px 0px; border-bottom: 1px solid var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.08)); vertical-align: top; background: transparent; }
+.lumi-spec-table th:last-child, .lumi-spec-table td:last-child { padding-right: 0px; }
+.lumi-spec-label { display: block; font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 13px; line-height: 17px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 13; color: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); margin-bottom: 2px; }
+.lumi-spec-value { display: block; font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 15px; line-height: 20px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 15; color: var(--lumi-sys-color--on-surface-default, #000000); }
+.lumi-spec-table-more { display: flex; align-items: center; justify-content: center; padding: 12px; color: var(--lumi-sys-color--on-surface-variant, rgba(0, 0, 0, 0.62)); font-size: 15px; line-height: 20px; cursor: pointer; }
+
+/* --- Sortable Table Headers --- */
+th[aria-sort] { color: var(--lumi-sys-color--on-surface-default, #000000); }
+button.lumi-sort-btn, .lumi-sort-btn { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; text-align: inherit; width: 100%; justify-content: inherit; border-radius: var(--lumi-sys-shape--small, 4px); }
+button.lumi-sort-btn:hover, .lumi-sort-btn:hover { background-color: var(--lumi-sys-color--on-surface-low, rgba(0, 0, 0, 0.06)) !important; }
+button.lumi-sort-btn:focus-visible, .lumi-sort-btn:focus-visible { outline: 2px solid var(--lumi-sys-color--on-surface-default, #000000) !important; outline-offset: 2px !important; }
+
+/* --- Code block --- */
+.lumi-code-block { background-color: var(--lumi-sys-color--code-background, #000000); border-radius: var(--lumi-sys-shape--xl-max, 40px); padding: 32px; display: flex; flex-direction: column; gap: var(--lumi-sys-spacing--l, 16px); width: 100%; box-sizing: border-box; }
+.lumi-code-header { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+.lumi-code-lang { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 15px; font-weight: 500; font-variation-settings: "wght" 540, "wdth" 92, "opsz" 15; color: var(--lumi-sys-color--code-primary-text, #ffffff); }
+.lumi-code-copy { background: transparent; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; color: var(--lumi-sys-color--code-primary-text, #ffffff); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: var(--lumi-sys-shape--full, 999px); transition: background-color 0.2s; }
+.lumi-code-copy:hover { background-color: rgba(255, 255, 255, 0.1); }
+.lumi-code-snippet { margin: 0px; overflow-x: auto; width: 100%; }
+.lumi-code-snippet code { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-size: 15px; line-height: 20px; color: var(--lumi-sys-color--code-primary-text, #ffffff); display: block; white-space: pre; }
+
+/* --- Section / prose --- */
+.lumi-section { display: flex; flex-direction: column; align-items: stretch; width: 100%; }
+.lumi-section h1 { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 28px; line-height: 36px; font-weight: 350; font-variation-settings: "wght" 350, "wdth" 100, "opsz" 28; color: var(--lumi-sys-color--on-surface, #000000); margin-top: var(--lumi-sys-spacing--m, 12px); margin-bottom: var(--lumi-sys-spacing--xxl, 24px); }
+.lumi-section h1:first-child { margin-top: 0px; }
+.lumi-section h2 { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 24px; line-height: 28px; font-weight: 380; font-variation-settings: "wght" 380, "wdth" 100, "opsz" 24; color: var(--lumi-sys-color--on-surface, #000000); margin-top: var(--lumi-sys-spacing--m, 12px); margin-bottom: var(--lumi-sys-spacing--m, 12px); }
+.lumi-section h2:first-child { margin-top: 0px; }
+.lumi-section h3 { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 20px; line-height: 24px; font-weight: 470; font-variation-settings: "wght" 470, "wdth" 94, "opsz" 20; color: var(--lumi-sys-color--on-surface, #000000); margin-top: var(--lumi-sys-spacing--m, 12px); margin-bottom: var(--lumi-sys-spacing--xs, 4px); }
+.lumi-section h3:first-child { margin-top: 0px; }
+.lumi-section p { font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 17px; line-height: 24px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 17; color: var(--lumi-sys-color--on-surface, #000000); margin-top: 0px; margin-bottom: var(--lumi-sys-spacing--m, 12px); }
+.lumi-section p:last-child { margin-bottom: 0px; }
+.lumi-section ul { list-style: none; padding: 0px; margin: 0 0 var(--lumi-sys-spacing--m, 12px) 0; width: 100%; }
+.lumi-section ul:last-child { margin-bottom: 0px; }
+.lumi-section li { position: relative; padding-left: 40px; padding-bottom: 12px; font-family: var(--ff-sans, 'Google Sans Flex', sans-serif); font-size: 17px; line-height: 24px; font-weight: 400; font-variation-settings: "wght" 400, "wdth" 92, "opsz" 17; color: var(--lumi-sys-color--on-surface, #000000); box-sizing: border-box; }
+.lumi-section li:last-child { padding-bottom: 0px; }
+.lumi-section li::before { content: "○"; position: absolute; left: 3.5px; top: 0px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-family: var(--ff-mono, 'Google Sans Code', monospace); font-size: 15px; font-weight: 650; font-variation-settings: "MONO" 1, "wght" 650; color: var(--lumi-sys-color--on-surface, #000000); }
+.lumi-section li ul { margin-top: 12px; margin-bottom: 0px; padding-left: 40px; }
+
+/* --- Chart legend (1:1 series color match) --- */
+.lumi-chart-header, .lumi-chart-title { margin-bottom: 32px; }
+.lumi-chart-legend { display: flex; justify-content: center; align-items: center; gap: 24px; margin-top: 32px; padding-top: 0px; width: 100%; flex-wrap: wrap; }
+.lumi-legend-item { display: inline-flex; align-items: center; gap: 8px; }
+.lumi-legend-dot { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lumi-legend-dot-swatch { width: 20px; height: 20px; border-radius: 50%; display: block; }
+span.lumi-legend-dot[style*="background"] { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.lumi-legend-label { font-family: var(--ff-mono, 'Google Sans Code', monospace); font-style: italic; font-size: 13px; font-weight: 400; line-height: 20px; color: var(--lumi-sys-color--on-surface, #000000); font-variation-settings: "wght" 400, "opsz" 13, "MONO" 0; font-feature-settings: "kern" 1, "liga" 1; white-space: nowrap; }
+
+/* Canonical themed <select>. Uses element+class specificity (select.lumi-select)
+   so it intentionally wins over any model hand-rolled `.lumi-select` rule: the
+   runtime stylesheet is injected before widget <style> blocks, so a bare
+   `.lumi-select` (same specificity, later) would otherwise override it. This
+   provides appearance:none + a theme-neutral chevron so no native OS arrow leaks. */
+select.lumi-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  padding: var(--lumi-sys-spacing--s, 8px) 40px var(--lumi-sys-spacing--s, 8px)
+    var(--lumi-sys-spacing--m, 12px);
+  border: 1px solid var(--stroke-default);
+  border-radius: var(--r-full, 999px);
+  background-color: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--ff-sans, 'Google Sans Flex', sans-serif);
+  font-size: 15px;
+  line-height: 20px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2380868b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 14px;
+}
+select.lumi-select:focus-visible {
+  outline: 2px solid var(--lumi-sys-color--accent-fixed, #3186ff);
+  outline-offset: 2px;
+}
+
+/* Toggle / filter chip. Models frequently emit `<button class="lumi-chip">`
+   (or `.lumi-chip-btn`, `.lumi-filter-btn`, `[class^="lumi-chip-"]`, with
+   `.is-active`/`.active`/`.is-selected`) for toggle pills; without a
+   canonical rule these fall back to native (retro) browser button chrome.
+   Theme-aware via runtime tokens so it is correct in light and dark. */
+.lumi-chip,
+[class^="lumi-chip"],
+[class*=" lumi-chip"],
+[class^="lumi-pill"],
+[class*=" lumi-pill"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lumi-sys-spacing--s, 8px);
+  min-height: 32px;
+  padding: 0 16px;
+  font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--lumi-sys-color--on-surface-default, #1f1f1f);
+  background: var(--lumi-sys-color--surface-dim, #f2f0f0);
+  border: 1px solid transparent;
+  border-radius: var(--lumi-sys-shape--full, 999px);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.lumi-chip:hover,
+[class^="lumi-chip"]:hover,
+[class*=" lumi-chip"]:hover,
+[class^="lumi-pill"]:hover,
+[class*=" lumi-pill"]:hover {
+  background: var(--lumi-sys-color--surface-container-high, #e6e6e6);
+}
+.lumi-chip.is-active,
+.lumi-chip.active,
+.lumi-chip.is-selected,
+.lumi-chip.selected,
+.lumi-chip[aria-pressed="true"],
+.lumi-chip[aria-selected="true"],
+.lumi-chip[aria-checked="true"],
+[class^="lumi-chip"].is-active,
+[class^="lumi-chip"].active,
+[class^="lumi-chip"].is-selected,
+[class^="lumi-chip"].selected,
+[class^="lumi-chip"][aria-pressed="true"],
+[class^="lumi-chip"][aria-selected="true"],
+[class^="lumi-chip"][aria-checked="true"],
+[class*=" lumi-chip"].is-active,
+[class*=" lumi-chip"].active,
+[class*=" lumi-chip"].is-selected,
+[class*=" lumi-chip"].selected,
+[class*=" lumi-chip"][aria-pressed="true"],
+[class*=" lumi-chip"][aria-selected="true"],
+[class*=" lumi-chip"][aria-checked="true"],
+[class^="lumi-pill"].is-active,
+[class^="lumi-pill"].active,
+[class^="lumi-pill"].is-selected,
+[class^="lumi-pill"].selected,
+[class^="lumi-pill"][aria-pressed="true"],
+[class^="lumi-pill"][aria-selected="true"],
+[class^="lumi-pill"][aria-checked="true"],
+[class*=" lumi-pill"].is-active,
+[class*=" lumi-pill"].active,
+[class*=" lumi-pill"].is-selected,
+[class*=" lumi-pill"].selected,
+[class*=" lumi-pill"][aria-pressed="true"],
+[class*=" lumi-pill"][aria-selected="true"],
+[class*=" lumi-pill"][aria-checked="true"] {
+  color: var(--lumi-sys-color--on-surface-default, #000000);
+  background: var(--lumi-sys-color--accent-container, #dcf1ff);
+  border-color: var(--lumi-sys-color--primary, #3186ff);
+  font-weight: 600;
+}
+.lumi-chip:focus-visible,
+[class^="lumi-chip"]:focus-visible,
+[class*=" lumi-chip"]:focus-visible,
+[class^="lumi-pill"]:focus-visible,
+[class*=" lumi-pill"]:focus-visible {
+  outline: 2px solid var(--lumi-sys-color--accent-fixed, #3186ff);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+ * DIAGRAM GUARD — SVG <text> is fill-only.
+ *   An inherited group stroke (e.g. `.node:hover { stroke }` on a <g>)
+ *   otherwise cascades into child <text>, thickening glyph outlines
+ *   (fake-bold) and recoloring the label. Highlight strokes belong on
+ *   shapes (rect/path); text never paints a stroke.
+ * ============================================================ */
+svg text { stroke: none; paint-order: fill; }
+
+/* ============================================================
+ * 6. HIGH CONTRAST MODE (Windows Forced Colors)
+ *    Ensures buttons, selectable pills/tabs/segments, sliders, and switches
+ *    remain clearly identifiable and convey active/selected state in
+ *    @media (forced-colors: active).
+ * ============================================================ */
+@media (forced-colors: active) {
+  button,
+  .lumi-btn,
+  [class^="lumi-btn-"],
+  [class*=" lumi-btn-"],
+  .lumi-chip,
+  [class^="lumi-chip"],
+  [class*=" lumi-chip"],
+  [class^="lumi-pill"],
+  [class*=" lumi-pill"],
+  .lumi-segmented-btn,
+  .lumi-tab {
+    border: 1px solid ButtonBorder !important;
+  }
+
+  button.active,
+  button.is-active,
+  button.selected,
+  button.is-selected,
+  button[aria-pressed="true"],
+  button[aria-selected="true"],
+  button[aria-checked="true"],
+  .lumi-btn.active,
+  .lumi-btn.is-active,
+  .lumi-btn.selected,
+  .lumi-btn.is-selected,
+  .lumi-btn[aria-pressed="true"],
+  .lumi-btn[aria-selected="true"],
+  .lumi-btn[aria-checked="true"],
+  .lumi-chip.active,
+  .lumi-chip.is-active,
+  .lumi-chip.selected,
+  .lumi-chip.is-selected,
+  .lumi-chip[aria-pressed="true"],
+  .lumi-chip[aria-selected="true"],
+  .lumi-chip[aria-checked="true"],
+  [class^="lumi-chip"].active,
+  [class^="lumi-chip"].is-active,
+  [class^="lumi-chip"].selected,
+  [class^="lumi-chip"].is-selected,
+  [class^="lumi-chip"][aria-pressed="true"],
+  [class^="lumi-chip"][aria-checked="true"],
+  [class*=" lumi-chip"].active,
+  [class*=" lumi-chip"].is-active,
+  [class*=" lumi-chip"].selected,
+  [class*=" lumi-chip"].is-selected,
+  [class*=" lumi-chip"][aria-pressed="true"],
+  [class*=" lumi-chip"][aria-checked="true"],
+  [class^="lumi-pill"].active,
+  [class^="lumi-pill"].is-active,
+  [class^="lumi-pill"][aria-pressed="true"],
+  [class^="lumi-pill"][aria-checked="true"],
+  [class*=" lumi-pill"].active,
+  [class*=" lumi-pill"].is-active,
+  [class*=" lumi-pill"][aria-pressed="true"],
+  [class*=" lumi-pill"][aria-checked="true"],
+  .lumi-segmented-btn.active,
+  .lumi-segmented-btn.is-active,
+  .lumi-segmented-btn.selected,
+  .lumi-segmented-btn.is-selected,
+  .lumi-segmented-btn[aria-pressed="true"],
+  .lumi-segmented-btn[aria-selected="true"],
+  .lumi-segmented-btn[aria-checked="true"],
+  .lumi-tab.active,
+  .lumi-tab.is-active,
+  .lumi-tab.selected,
+  .lumi-tab.is-selected,
+  .lumi-tab[aria-pressed="true"],
+  .lumi-tab[aria-selected="true"],
+  .lumi-tab[aria-checked="true"] {
+    forced-color-adjust: none;
+    background-color: Highlight !important;
+    color: HighlightText !important;
+    border-color: Highlight !important;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  input[type="range"],
+  .lumi-slider {
+    forced-color-adjust: none;
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  input[type="range"]::-webkit-slider-runnable-track,
+  .lumi-slider::-webkit-slider-runnable-track {
+    background-image: none !important;
+    background-color: Canvas !important;
+    border: 1px solid ButtonBorder !important;
+    height: 6px !important;
+  }
+  input[type="range"]::-webkit-slider-thumb,
+  .lumi-slider::-webkit-slider-thumb {
+    background-image: none !important;
+    background-color: ButtonText !important;
+    border: 2px solid Canvas !important;
+    outline: 2px solid ButtonBorder !important;
+    width: 20px !important;
+    height: 20px !important;
+    margin-top: -8px !important;
+  }
+  input[type="range"]:hover::-webkit-slider-thumb,
+  input[type="range"]:focus-visible::-webkit-slider-thumb,
+  .lumi-slider:hover::-webkit-slider-thumb,
+  .lumi-slider:focus-visible::-webkit-slider-thumb {
+    background-color: Highlight !important;
+    outline-color: Highlight !important;
+  }
+
+  .lumi-progress-bar {
+    forced-color-adjust: none;
+    background-color: Canvas !important;
+    border: 1px solid ButtonBorder !important;
+  }
+  .lumi-progress-fill {
+    forced-color-adjust: none;
+    background-color: Highlight !important;
+  }
+
+  .lumi-switch__track {
+    forced-color-adjust: none;
+    background-color: Canvas !important;
+    border: 2px solid ButtonBorder !important;
+  }
+  .lumi-switch__thumb,
+  .lumi-switch__track::after {
+    background-color: ButtonText !important;
+  }
+  .lumi-switch input[type="checkbox"]:checked + .lumi-switch__track {
+    background-color: Highlight !important;
+    border-color: Highlight !important;
+  }
+  .lumi-switch input[type="checkbox"]:checked + .lumi-switch__track .lumi-switch__thumb,
+  .lumi-switch input[type="checkbox"]:checked + .lumi-switch__track::after {
+    background-color: HighlightText !important;
+  }
+
+  .lumi-checkbox {
+    forced-color-adjust: none;
+    border: 2px solid ButtonBorder !important;
+    background-color: Canvas !important;
+  }
+  .lumi-checkbox-label input[type="checkbox"]:checked ~ .lumi-checkbox,
+  .lumi-checkbox-label input[type="checkbox"]:indeterminate ~ .lumi-checkbox {
+    background-color: Highlight !important;
+    border-color: Highlight !important;
+  }
+  .lumi-checkbox .lumi-checkmark {
+    color: HighlightText !important;
+    fill: HighlightText !important;
+  }
+}
+
+</style>
+<style id="lumi-surface-button-fallbacks">
+.widget-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding-inline: 0 !important;
+  box-sizing: border-box;
+}
+:root {
+  --lumi-sys-color--surface-translucent: rgba(255, 255, 255, 0.88);
+  --surface-translucent: var(--lumi-sys-color--surface-translucent, rgba(255, 255, 255, 0.88));
+  --surface-glass: var(--lumi-sys-color--surface-translucent, rgba(255, 255, 255, 0.88));
+}
+:root[data-theme="dark"], body.dark-mode {
+  --lumi-sys-color--surface-translucent: rgba(24, 24, 27, 0.88);
+  --surface-translucent: rgba(24, 24, 27, 0.88);
+  --surface-glass: rgba(24, 24, 27, 0.88);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --lumi-sys-color--surface-translucent: rgba(24, 24, 27, 0.88);
+    --surface-translucent: rgba(24, 24, 27, 0.88);
+    --surface-glass: rgba(24, 24, 27, 0.88);
+  }
+}
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 18px;
+  font-family: var(--ff-sans, 'Google Sans Flex', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--on-surface, #000000);
+  background-color: var(--lumi-sys-color--surface-bright, #ffffff);
+  border: 1px solid var(--stroke-default, #e3e3e3);
+  border-radius: 999px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+button:hover {
+  background-color: var(--surface-container-high, #e6e6e6);
+}
+button.active, button.is-active, button.selected, button.is-selected, button[aria-pressed="true"], button[aria-selected="true"], button[aria-checked="true"] {
+  background-color: var(--accent-container, #dcf1ff);
+  color: var(--on-surface, #000000);
+  border-color: var(--primary, #3186ff);
+}
+[role="application"]:focus-visible, [aria-roledescription*="chart"]:focus-visible {
+  outline: 2px solid var(--primary, #3186ff) !important;
+  outline-offset: 4px !important;
+}
+button.lumi-sort-btn, .lumi-sort-btn {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+  width: 100%;
+  justify-content: inherit;
+  border-radius: 4px;
+}
+button.lumi-sort-btn:focus-visible, .lumi-sort-btn:focus-visible {
+  outline: 2px solid var(--on-surface, #000000) !important;
+  outline-offset: 2px !important;
+}
+.lumi-segmented-btn, .lumi-tab {
+  border: 1px solid transparent;
+}
+.lumi-btn, [class^="lumi-btn-"], [class*=" lumi-btn-"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 18px;
+  background-color: var(--lumi-sys-color--surface-bright, #ffffff);
+  color: var(--on-surface, #000000);
+  border: 1px solid var(--stroke-default, #e3e3e3);
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+.lumi-btn--primary, .lumi-btn-primary {
+  background-color: var(--lumi-sys-color--accent, #9dd2ff);
+  color: var(--lumi-sys-color--on-surface-default, #000000);
+  border-color: transparent;
+}
+.lumi-btn--primary:hover, .lumi-btn-primary:hover {
+  background-color: var(--lumi-sys-color--accent-container, #dcf1ff);
+}
+:where(.lumi-chip, [class^="lumi-chip"], [class*=" lumi-chip"], [class^="lumi-pill"], [class*=" lumi-pill"]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 16px;
+  font-family: var(--ff-sans, 'Google Sans Flex', sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--on-surface, #1f1f1f);
+  background: var(--surface-dim, #f2f0f0);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.lumi-chip.is-active, .lumi-chip.active, .lumi-chip.is-selected, .lumi-chip.selected, .lumi-chip[aria-pressed="true"], .lumi-chip[aria-selected="true"], .lumi-chip[aria-checked="true"],
+[class^="lumi-chip"].is-active, [class^="lumi-chip"].active, [class^="lumi-chip"].is-selected, [class^="lumi-chip"].selected, [class^="lumi-chip"][aria-pressed="true"], [class^="lumi-chip"][aria-selected="true"], [class^="lumi-chip"][aria-checked="true"],
+[class*=" lumi-chip"].is-active, [class*=" lumi-chip"].active, [class*=" lumi-chip"].is-selected, [class*=" lumi-chip"].selected, [class*=" lumi-chip"][aria-pressed="true"], [class*=" lumi-chip"][aria-selected="true"], [class*=" lumi-chip"][aria-checked="true"],
+[class^="lumi-pill"].is-active, [class^="lumi-pill"].active, [class^="lumi-pill"].is-selected, [class^="lumi-pill"].selected, [class^="lumi-pill"][aria-pressed="true"], [class^="lumi-pill"][aria-selected="true"], [class^="lumi-pill"][aria-checked="true"],
+[class*=" lumi-pill"].is-active, [class*=" lumi-pill"].active, [class*=" lumi-pill"].is-selected, [class*=" lumi-pill"].selected, [class*=" lumi-pill"][aria-pressed="true"], [class*=" lumi-pill"][aria-selected="true"], [class*=" lumi-pill"][aria-checked="true"] {
+  color: var(--on-surface, #000000);
+  background: var(--accent-container, #dcf1ff);
+  border-color: var(--primary, #3186ff);
+  font-weight: 600;
+}
+@media (forced-colors: active) {
+  button, .lumi-btn, .lumi-chip, [class^="lumi-chip"], [class*=" lumi-chip"], [class^="lumi-pill"], [class*=" lumi-pill"], .lumi-segmented-btn, .lumi-tab {
+    border: 1px solid ButtonText !important;
+  }
+  button.active, button.is-active, button.selected, button.is-selected, button[aria-pressed="true"], button[aria-selected="true"], button[aria-checked="true"], .lumi-btn.active, .lumi-btn.is-active, .lumi-btn.selected, .lumi-btn.is-selected, .lumi-btn[aria-pressed="true"], .lumi-btn[aria-selected="true"], .lumi-btn[aria-checked="true"], .lumi-chip.is-active, .lumi-chip.active, .lumi-chip.is-selected, .lumi-chip.selected, .lumi-chip[aria-pressed="true"], .lumi-chip[aria-selected="true"], .lumi-chip[aria-checked="true"], .lumi-segmented-btn.is-active, .lumi-segmented-btn.active, .lumi-segmented-btn.is-selected, .lumi-segmented-btn.selected, .lumi-segmented-btn[aria-pressed="true"], .lumi-segmented-btn[aria-selected="true"], .lumi-segmented-btn[aria-checked="true"], .lumi-tab.active, .lumi-tab.is-active, .lumi-tab.selected, .lumi-tab.is-selected, .lumi-tab[aria-pressed="true"], .lumi-tab[aria-selected="true"], .lumi-tab[aria-checked="true"] {
+    border: 2px solid Highlight !important;
+  }
+  .lumi-slider::-webkit-slider-runnable-track {
+    border: 1px solid ButtonText !important;
+  }
+  .lumi-slider::-webkit-slider-thumb {
+    border: 2px solid Highlight !important;
+    background-color: ButtonText !important;
+  }
+}
+</style>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Universal Brain 3D v2.0 アーキテクチャ配線図</title>
+  <style>
+    body, svg, button, input, select {
+      font-family: var(--ff-sans, 'Google Sans Flex', 'Google Sans', sans-serif);
+    }
+    .wiring-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .toolbar-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .legend-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 14px;
+      font-size: 12px;
+      color: var(--on-surface-variant);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+    .svg-stage-wrap {
+      background: var(--surface-bright);
+      border-radius: var(--r-l);
+      padding: 12px 10px 8px 10px;
+    }
+    .stage-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .node-g {
+      cursor: pointer;
+    }
+    .node-step-shape {
+      fill: var(--surface-dim);
+      stroke: none;
+      transition: fill 0.16s ease, stroke 0.16s ease, opacity 0.16s ease;
+    }
+    .node-store-shape {
+      fill: var(--surface-container);
+      stroke: var(--outline);
+      stroke-width: 1;
+      transition: fill 0.16s ease, stroke 0.16s ease, opacity 0.16s ease;
+    }
+    .node-focal-shape {
+      fill: var(--accent-container);
+      stroke: var(--primary);
+      stroke-width: 1.35;
+      transition: fill 0.16s ease, stroke 0.16s ease, opacity 0.16s ease;
+    }
+    .node-g.is-selected .node-step-shape,
+    .node-g.is-selected .node-store-shape,
+    .node-g.is-selected .node-focal-shape {
+      fill: var(--accent-container);
+      stroke: var(--primary);
+      stroke-width: 2;
+    }
+    .node-g.is-peer-tx .node-step-shape,
+    .node-g.is-peer-tx .node-store-shape,
+    .node-g.is-peer-tx .node-focal-shape {
+      stroke: var(--primary);
+      stroke-width: 1.4;
+    }
+    .node-g.is-peer-rx .node-step-shape,
+    .node-g.is-peer-rx .node-store-shape,
+    .node-g.is-peer-rx .node-focal-shape {
+      stroke: var(--positive);
+      stroke-width: 1.4;
+    }
+    .node-g.is-dimmed {
+      opacity: 0.34;
+    }
+    .edge-bg {
+      fill: none;
+      stroke: var(--on-surface);
+      stroke-opacity: 0.16;
+      stroke-width: 1.2;
+      stroke-linecap: round;
+      stroke-dasharray: 0 4;
+    }
+    .edge-tx {
+      fill: none;
+      stroke: var(--primary);
+      stroke-width: 1.65;
+      stroke-linecap: round;
+      stroke-dasharray: 0 4;
+    }
+    .edge-rx {
+      fill: none;
+      stroke: var(--positive);
+      stroke-width: 1.65;
+      stroke-linecap: round;
+      stroke-dasharray: 0 4;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .io-box {
+      background: var(--surface-dim);
+      border-radius: var(--r-m);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .io-label {
+      font-size: 12px;
+      color: var(--on-surface-variant);
+      font-family: var(--ff-mono);
+    }
+    .io-body {
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--on-surface);
+    }
+    .meta-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .meta-tag {
+      font-family: var(--ff-mono);
+      font-size: 12px;
+      color: var(--primary);
+    }
+  </style>
+<script id="lumi-theme-sync">
+(function() {
+  function syncBody() {
+    var dt = document.documentElement.getAttribute('data-theme');
+    if (document.body && (dt === 'dark' || dt === 'light')) {
+      document.body.classList.toggle('dark-mode', dt === 'dark');
+    }
+  }
+  function applyTheme(theme) {
+    if (theme !== 'dark' && theme !== 'light') return;
+    document.documentElement.setAttribute('data-theme', theme);
+    syncBody();
+  }
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(syncBody).observe(document.documentElement, {
+      attributes: true, attributeFilter: ['data-theme']
+    });
+  }
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('DOMContentLoaded', syncBody);
+  }
+  try {
+    var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq) {
+      if (!document.documentElement.hasAttribute('data-theme')) {
+        applyTheme(mq.matches ? 'dark' : 'light');
+      } else {
+        syncBody();
+      }
+      if (mq.addEventListener) {
+        mq.addEventListener('change', function(e) {
+          applyTheme(e.matches ? 'dark' : 'light');
+        });
+      }
+    }
+  } catch (e) {}
+  window.addEventListener('message', function(e) {
+    if (e.data && (e.data.type === 'set-theme' || e.data.type === 'APPLY_THEME') && e.data.theme) {
+      applyTheme(e.data.theme);
+    }
+  });
+})();
+</script>
+</head>
+<body>
+  <div class="widget-container wiring-shell" id="viz-zone">
+    <div class="toolbar-row">
+      <div class="lumi-segmented-group" role="group" aria-label="配線図レイヤ切替">
+        <button type="button" class="lumi-segmented-btn is-active" data-view="ipc">1. 全体プロセス・バス配線</button>
+        <button type="button" class="lumi-segmented-btn" data-view="loop">2. 運動調停・閉ループ制御</button>
+        <button type="button" class="lumi-segmented-btn" data-view="gpu">3. GPU推論コア内部</button>
+      </div>
+      <div class="legend-strip">
+        <span class="legend-item"><span class="legend-dot" style="background: var(--primary);"></span>選択ノードからの送信 (TX)</span>
+        <span class="legend-item"><span class="legend-dot" style="background: var(--positive);"></span>選択ノードへの受信 (RX)</span>
+      </div>
+    </div>
+
+    <div class="svg-stage-wrap">
+      <svg id="wiring-svg" class="stage-svg" viewBox="0 0 760 468" role="img" aria-label="Universal Brain 3D 情報送受信配線図">
+        <defs>
+          <marker id="lumi-caret-bg" viewBox="0 0 10 10" refX="7.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto">
+            <path d="M 3 1.5 L 7.5 5 L 3 8.5" fill="none" stroke="var(--on-surface)" stroke-opacity="0.24" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+          <marker id="lumi-caret-tx" viewBox="0 0 10 10" refX="7.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+            <path d="M 2.8 1.2 L 7.5 5 L 2.8 8.8" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+          <marker id="lumi-caret-rx" viewBox="0 0 10 10" refX="7.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+            <path d="M 2.8 1.2 L 7.5 5 L 2.8 8.8" fill="none" stroke="var(--positive)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+        <g id="svg-headers"></g>
+        <g id="svg-edges-bg"></g>
+        <g id="svg-edges-active"></g>
+        <g id="svg-nodes"></g>
+      </svg>
+    </div>
+
+    <div class="lumi-summary-card" id="detail-card">
+      <div class="meta-head">
+        <div class="lumi-body-m-emphasized" id="detail-title">#5 ConsciousGWTProcess</div>
+        <div class="meta-tag" id="detail-badge">12 Hz + Event-Woken | Zero-GPU (Barrier 1)</div>
+      </div>
+      <div class="lumi-body-s" id="detail-summary" style="color: var(--on-surface-variant); margin-top: 4px;">
+        5つの専門モジュール統合・統合情報量 Φ_G 算出・RSSM生存拒否権(Survival Veto)と緊急回避免除を担う意識中枢プロセスです。
+      </div>
+      <div class="detail-grid">
+        <div class="io-box">
+          <div class="io-label">受信入力 (RX / Read)</div>
+          <div class="io-body" id="detail-rx">WORLD3D, SPATIAL3D(24D方位・8候補), VISION_CORTEX3D, TIMING3D, LANGUAGE3D, CH_REFLEX_S1, GPU RPC(infer_gwt)</div>
+        </div>
+        <div class="io-box">
+          <div class="io-label">送信出力 (TX / Publish)</div>
+          <div class="io-body" id="detail-tx">COGNITIVE3D(GWT・TopDown目標・報酬TD), CH_CONSCIOUS_GWT(ch=1), CH_SYSTEM_CONTROL(ch=3 Sleep), GPU RPC(record_transition/sleep)</div>
+        </div>
+        <div class="io-box">
+          <div class="io-label">設計上の重要ポイント</div>
+          <div class="io-body" id="detail-note">Plan-Aにより内言バイアスを0.0に遮断。開空間の被弾危機ではM7(静止)をVetoし、回避候補(esc_m)のVetoを免除します。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const VIEWS = {
+      ipc: {
+        height: 468,
+        defaultNode: 'p5_gwt',
+        headers: [
+          { x: 112, y: 16, text: 'CPU プロセス群 (Barrier 1: Zero-PyTorch)' },
+          { x: 380, y: 16, text: 'Lock-Free SeqLock 共有メモリバス (CRC32)' },
+          { x: 648, y: 16, text: '外部通信 / 独占GPUコア' }
+        ],
+        nodes: [
+          { id: 'p1_world', x: 16, y: 32, w: 192, h: 58, rx: 29, role: 'step', title: '#1 WorldBridge', sub: '60 Hz | 環境・TCP境界',
+            badge: 'Process #1 | 60 Hz | Zero-GPU',
+            summary: 'Unity TCP (UB3D/UBMC) または内蔵3Dアリーナを駆動し、感覚入力の配信と最終モーター出力の優先度調停を行う境界プロセスです。',
+            rx: 'Unity UB3D (6,296B / v2: 34,968B), MOTOR_INTENT3D (ch3/ch2/ch1/ch0), TIMING3D (直前ゲート確認), COGNITIVE3D (Atom1: time_scale), LANGUAGE3D',
+            tx: 'WORLD3D (60Hz感覚・報酬 + Atom3: respawn_counter), RETINAL3D (両眼RGB), Unity UBMC (128B), gwt_wake_ev (即時起床通知)',
+            note: '行動コマンド送出直前にTIMING3Dの最新ゲートを再確認しつつ、VERB_EVADE_HAZARD(緊急回避)は無条件で即時通過させます。' },
+          { id: 'p3_spatial', x: 16, y: 104, w: 192, h: 58, rx: 29, role: 'step', title: '#3 SpatialTiming', sub: '60 Hz | 4層地図・小脳・BG',
+            badge: 'Process #3 | 60 Hz | Zero-GPU',
+            summary: '3D格子細胞・静止ランドマーク限定EKF-SLAM・4層認知地図・小脳偏差射撃予測・大脳基底核STN-SNr発火ゲートを60Hzで統合実行します。',
+            rx: 'WORLD3D (+ Atom3: リスポーン検知), VISION_CORTEX3D, COGNITIVE3D (TopDown目標・視線・Slot座標・TD報酬), CH_REFLEX_S1, LANGUAGE3D',
+            tx: 'SPATIAL3D (24D方位・権威付け8行動候補・48x48認知地図・偏差座標), TIMING3D (commit_gate_open), CH_GAZE_SACCADE (ch=2 視線制御)',
+            note: 'S1とGWTの候補ズレを防ぐため、8個の移動/照準分離候補(auth_cand_poses[8,6])をここで一元生成してSPATIAL3Dへ配信します。' },
+          { id: 'p4_s1', x: 16, y: 176, w: 192, h: 58, rx: 29, role: 'step', title: '#4 System1Reflex', sub: '24 Hz | 高速反射 TT-D3QN',
+            badge: 'Process #4 | 24 Hz | Zero-GPU',
+            summary: '意識プロセス(12Hz)の隙間を埋める24Hzの高速反射ループ。前回のGWT/RSSM文脈を借りて8候補のQ値と速度変調を即座に評価します。',
+            rx: 'WORLD3D, SPATIAL3D (auth_cand_poses/verbs, mem_compass), VISION_CORTEX3D, COGNITIVE3D (前回のgwt_w/rssm_h/z_td), TIMING3D, GPU RPC(infer_s1)',
+            tx: 'GPU RPC req_q (infer_s1), MOTOR_INTENT3D CH_REFLEX_S1 (ch=0, 有効期限 260ms)',
+            note: '高速経路でも開空間・高危険時の静止(IdleObserve)を強制排除し、M4(EvadeHazard)へ即座にフォールバックする安全弁を備えます。' },
+          { id: 'p5_gwt', x: 16, y: 248, w: 192, h: 58, rx: 29, role: 'focal', title: '#5 ConsciousGWT', sub: '12 Hz+Wake | 意識・Veto',
+            badge: 'Process #5 | 12 Hz + Event-Woken | Zero-GPU',
+            summary: '5専門モジュール統合、統合情報量 Φ_G、3ヘッドRSSMによる生存拒否権(Survival Veto)、3ステップ優先度学習・睡眠固定化を制御する中枢です。',
+            rx: 'WORLD3D (+ gwt_wake_ev), SPATIAL3D, VISION_CORTEX3D, TIMING3D, LANGUAGE3D, CH_REFLEX_S1, GPU RPC (infer_gwt / record_transition / sleep)',
+            tx: 'COGNITIVE3D (GWT状態・TopDownモード・TD報酬), CH_CONSCIOUS_GWT (ch=1, 450ms), CH_SYSTEM_CONTROL (ch=3 Sleep), lang_wake_ev',
+            note: 'エピソード終了時にCH_SYSTEM_CONTROLで物理進行を一時停止し、GPU側へ4段階の睡眠固定化(S-1..S-4)を指示します。' },
+          { id: 'p6_lang', x: 16, y: 320, w: 192, h: 58, rx: 29, role: 'step', title: '#6 LanguageCortex', sub: 'Event | Plan-A内言・LLM',
+            badge: 'Process #6 | Event-Driven | Zero-GPU',
+            summary: '視覚スロットと整合した日本語内言(Broca/Wernicke)を生成し、必要に応じて外部Ollama戦術コーチへS640要約を送出します。',
+            rx: 'WORLD3D, SPATIAL3D, COGNITIVE3D (gwt_w, proto_embed, slot_ctx64), lang_wake_ev, LANGUAGE3D (Atom0: ON/OFF), GPU RPC (infer_broca)',
+            tx: 'LANGUAGE3D (monologue_utf8, inner_speech_tokens, digest_s640, cand_prior_bias=0.0), Ollama HTTP (/api/chat)',
+            note: 'Plan-Aデフォルト(allow_broca_motor_bias=False)では運動バイアスを厳密に0.0へ固定し、言語生成による行動フリーズを完全防止します。' },
+          { id: 'p7_ux', x: 16, y: 392, w: 192, h: 58, rx: 29, role: 'step', title: '#7 TelemetryUX', sub: '15 Hz | 監視・UBNC制御',
+            badge: 'Process #7 | 15 Hz | Zero-GPU',
+            summary: '全共有メモリバスの最新スナップショットを集約してUnity UXへ15Hz配信し、UIからの実行時パラメータ変更をHeader Atomへ反映します。',
+            rx: 'WORLD3D, SPATIAL3D, TIMING3D, COGNITIVE3D, LANGUAGE3D, VISION_CORTEX3D, Unity UBNC (16B UI制御パケット)',
+            tx: 'Unity UBNT (3,636B 脳状態テレメトリ) + UBND (536B 16x16深度・不確実性), Header Atoms (Timing/Broca/Learning/TimeScale)',
+            note: '逆方向の専用ロックを持たず、各バスのヘッダ領域(bytes 40..63)の32bit AtomへUI操作を書き込むロックレス設計です。' },
+
+          { id: 'b_world', x: 284, y: 32, w: 192, h: 48, rx: 24, role: 'store', title: 'WORLD3D (_W)', sub: 'Writer: #1 | 感覚・報酬',
+            badge: 'SeqLock Bus | 60 Hz | 1-Writer (#1) → 5-Readers',
+            summary: '自己位置・速度・16D固有受容感覚・可視エンティティ(48×10)・16×16×4中心窩深度パッチ・報酬を配信する感覚基底バスです。',
+            rx: '#1 WorldBridge (publish_dict + Atom3: respawn_counter)',
+            tx: '#3 SpatialTiming, #4 System1Reflex, #5 ConsciousGWT, #6 LanguageCortex, #7 TelemetryUX',
+            note: 'Atom3のリスポーンカウンタにより、エピソードIDを維持したまま試合途中の復帰(Teleport)だけを#3へ正確に伝えます。' },
+          { id: 'b_retvc', x: 284, y: 92, w: 192, h: 48, rx: 24, role: 'store', title: 'RETINAL / VC3D', sub: 'Writer: #1→#2 | 両眼視覚',
+            badge: 'SeqLock Bus Pair (_R / _V) | 60 Hz | Stereo Vision',
+            summary: 'RETINAL3D(_R)が左右64×64 RGB網膜像を#2 GPUへ渡し、VISION_CORTEX3D(_V)が推論深度16×16×4と腹側色対立/運動特徴を返します。',
+            rx: 'RETINAL3D ← #1 WorldBridge / VISION_CORTEX3D ← #2 GPUInference (BinocularRetinotopicDepthNet3D)',
+            tx: 'RETINAL3D → #2 GPUInference / VISION_CORTEX3D → #3 Spatial, #4 S1, #5 GWT, #7 UX',
+            note: '背側ストリーム(深度・法線)と腹側ストリーム(赤緑/青黄対立・テクスチャ・自己回転減衰運動差分)の16×16×8統合を支えます。' },
+          { id: 'b_spatial', x: 284, y: 152, w: 192, h: 48, rx: 24, role: 'store', title: 'SPATIAL3D (_S)', sub: 'Writer: #3 | 24D方位・8候補',
+            badge: 'SeqLock Bus | 60 Hz | Authoritative Spatial & Candidates',
+            summary: 'MEC格子符号(256D)・HDリング(32D)・48×48の4層認知地図・24Dメモリコンパス・8個の権威付け行動候補を一元配信します。',
+            rx: '#3 SpatialTimingProcess',
+            tx: '#1 WorldBridge, #4 System1Reflex, #5 ConsciousGWT, #6 LanguageCortex, #7 TelemetryUX',
+            note: 'auth_cand_poses[8,6]とauth_cand_verbs[8]をこのバスに載せることで、S1(24Hz)とGWT(12Hz)の評価対象が完全に一致します。' },
+          { id: 'b_timing', x: 284, y: 212, w: 192, h: 48, rx: 24, role: 'store', title: 'TIMING3D (_T)', sub: 'Writer: #3 | STN-SNr門',
+            badge: 'SeqLock Bus | 60 Hz | Basal Ganglia Commit Gate',
+            summary: '大脳基底核のGo駆動とSTN-SNrブレーキの競合積分結果(commit_gate_open, hold_reason_id, stn_gains[4])をリアルタイム配信します。',
+            rx: '#3 SpatialTimingProcess (+ #7 UXからのAtom0: timing_mode切替)',
+            tx: '#1 WorldBridge (最終発火ゲート判定), #4 System1Reflex, #5 ConsciousGWT, #7 TelemetryUX',
+            note: '偏差射撃の照準同期待ち(LEAD-SYNC)や十字砲火待機(CROSSFIRE-HOLD)、インク潜伏回復(COVER-REGEN-HOLD)を60Hzで制御します。' },
+          { id: 'b_cog', x: 284, y: 272, w: 192, h: 48, rx: 24, role: 'store', title: 'COGNITIVE3D (_C)', sub: 'Writer: #5 | GWT・TopDown',
+            badge: 'SeqLock Bus | 12 Hz | Global Workspace Broadcast',
+            summary: '意識ワークスペース(128D)・RSSM隠れ状態(256D)・Q値/生存確率・Φ_Gに加え、#3へのTop-Down目標モードと視線焦点を逆照射します。',
+            rx: '#5 ConsciousGWTProcess (+ #7 UXからのAtom1/Atom2制御)',
+            tx: '#3 SpatialTiming (TopDown目標・視線・TD報酬), #4 S1 (文脈), #6 Lang, #7 UX, #1 WorldBridge',
+            note: 'ボトムアップ評価結果だけでなく、前頭葉StrategicTFが決めたtopdown_goal_modeとレーン重みを海馬・視線系へフィードバックします。' },
+          { id: 'b_lang', x: 284, y: 332, w: 192, h: 48, rx: 24, role: 'store', title: 'LANGUAGE3D (_L)', sub: 'Writer: #6 | 内言・S640',
+            badge: 'SeqLock Bus | Event | Grounded Inner Speech',
+            summary: '接地された内言テキスト(monologue_utf8)、トークン列、S640戦況要約、および外部コーチブレーキ信号(mode=99)を保持します。',
+            rx: '#6 LanguageCortexProcess (+ #7 UXからのAtom0: Broca ON/OFF)',
+            tx: '#1 WorldBridge (UBMC内言タグ), #3 SpatialTiming (コーチブレーキ), #5 ConsciousGWT, #7 TelemetryUX',
+            note: 'Plan-A標準構成ではcand_prior_bias[8]はゼロ配列であり、読み取り専用の意識テレメトリとして安全に機能します。' },
+          { id: 'b_intent', x: 284, y: 392, w: 192, h: 58, rx: 29, role: 'store', title: 'MOTOR_INTENT3D (_I)', sub: '4ch優先度運動・視線・制御',
+            badge: '4-Channel SeqLock Bus | Priority Motor & Control',
+            summary: 'ch3(Sleep制御), ch2(60Hz視線サッカード), ch1(12Hz意識GWT行動), ch0(24Hz反射S1行動)の4独立スロットを持つ出力バスです。',
+            rx: 'ch3 ← #5 GWT / ch2 ← #3 Spatial / ch1 ← #5 GWT / ch0 ← #4 S1',
+            tx: '#1 WorldBridge (優先度順に有効期限内のコマンドを採択), #3 & #5 (ch0を読んでS1/GWT競合を検知)',
+            note: '移動目標(target_pose[0:3])と武器照準角(target_pose[3:5])およびカメラ視線(gaze_ypd[3])が完全に独立配線されています。' },
+
+          { id: 'ext_io', x: 552, y: 36, w: 192, h: 92, rx: 32, role: 'step', title: 'Unity / UX / Ollama', sub: 'TCP_NODELAY & HTTP',
+            badge: 'External Interfaces | UB3D / UBMC / UBNT / Ollama',
+            summary: 'Unity本体(port 50055)、テレメトリUXコンソール(port+1)、およびローカルOllama(gemma4:12b)との外部プロセス通信境界です。',
+            rx: 'UBMC (128B モーター+視線) ← #1 / UBNT (3,636B) + UBND (536B) ← #7 / S640戦況要約 ← #6 & #5',
+            tx: 'UB3D (感覚フレーム) → #1 / UBNC (16B UI操作) → #7 / 戦術助言テキスト → #6 & SQLite知識DB',
+            note: '全バイナリパケット末尾にCRC32を付与し、破損フレームは即時破棄されます。' },
+          { id: 'rpc_q', x: 552, y: 162, w: 192, h: 82, rx: 32, role: 'store', title: 'GPU RPC Queue', sub: 'req_q (2ms窓) / resp_map',
+            badge: 'Multiprocessing Queue | Micro-Batched RPC',
+            summary: 'CPUプロセス(#4 S1, #5 GWT, #6 Lang, Orch)からの推論・学習要求を2.0ms窓で束ね、GPUプロセスへ非同期ディスパッチします。',
+            rx: 'req_q ← #4 (infer_s1), #5 (infer_gwt / record_transition / sleep), #6 (infer_broca)',
+            tx: 'req_q → #2 GPUInference / resp_map[1,2,3,9] → 各要求元CPUプロセスへ個別返却',
+            note: 'client_id上位8bit + seq下位24bitのreq_idで応答を厳密にルーティングし、infer_s1とinfer_gwtを動的バッチ化します。' },
+          { id: 'p2_gpu', x: 552, y: 278, w: 192, h: 166, rx: 36, role: 'focal', title: '#2 GPUInference', sub: 'Barrier 1: PyTorch独占\n13モデル・Replay・Sleep',
+            badge: 'Process #2 | Exclusive CUDA Owner (Barrier 1)',
+            summary: 'システム内で唯一PyTorchをimportするGPU推論・継続学習プロセス。13個のニューラルモデルと優先度付きReplayを独占管理します。',
+            rx: 'GPU RPC req_q (S1/GWT/Broca推論・3step遷移記録・Sleep指令), RETINAL3D (両眼RGB + 教師深度)',
+            tx: 'GPU RPC resp_map (推論結果・損失・ガード状態), VISION_CORTEX3D (推論深度16x16x4 + 腹側特徴)',
+            note: 'NaNや|Q|>50の爆発を検知すると即座に100%クリーンなAnchor重みへロールバックし、AdamW状態もパージして崩壊を防ぎます。' }
+        ],
+        edges: [
+          ['ext_io', 'p1_world', 'UB3D'],
+          ['p1_world', 'ext_io', 'UBMC'],
+          ['p1_world', 'b_world', '60Hz'],
+          ['p1_world', 'b_retvc', 'RGB'],
+          ['b_retvc', 'p2_gpu', 'Stereo'],
+          ['p2_gpu', 'b_retvc', 'VC3D'],
+          ['b_retvc', 'p3_spatial', 'Vis8'],
+          ['b_retvc', 'p4_s1', 'Vis8'],
+          ['b_retvc', 'p5_gwt', 'Vis8'],
+          ['b_world', 'p3_spatial', 'Sens'],
+          ['b_world', 'p4_s1', 'Sens'],
+          ['b_world', 'p5_gwt', 'Wake'],
+          ['b_world', 'p6_lang', 'Prop'],
+          ['b_world', 'p7_ux', 'Stat'],
+          ['p3_spatial', 'b_spatial', '8Cand'],
+          ['p3_spatial', 'b_timing', 'Gate'],
+          ['p3_spatial', 'b_intent', 'ch2視線'],
+          ['b_spatial', 'p4_s1', 'Cand'],
+          ['b_spatial', 'p5_gwt', 'Cand'],
+          ['b_spatial', 'p6_lang', 'Turf'],
+          ['b_spatial', 'p7_ux', 'Map'],
+          ['b_timing', 'p1_world', 'Gate'],
+          ['b_timing', 'p4_s1', 'Gate'],
+          ['b_timing', 'p5_gwt', 'Gate'],
+          ['b_timing', 'p7_ux', 'BG'],
+          ['p4_s1', 'rpc_q', 's1'],
+          ['p5_gwt', 'rpc_q', 'gwt'],
+          ['p6_lang', 'rpc_q', 'broca'],
+          ['rpc_q', 'p2_gpu', 'Batch'],
+          ['p2_gpu', 'rpc_q', 'Resp'],
+          ['rpc_q', 'p4_s1', 'Q/Spd'],
+          ['rpc_q', 'p5_gwt', 'GWT'],
+          ['rpc_q', 'p6_lang', 'Tok'],
+          ['p4_s1', 'b_intent', 'ch0反射'],
+          ['p5_gwt', 'b_intent', 'ch1/ch3'],
+          ['p5_gwt', 'b_cog', 'Broadcast'],
+          ['b_cog', 'p3_spatial', 'TopDown'],
+          ['b_cog', 'p4_s1', 'Ctx'],
+          ['b_cog', 'p6_lang', 'Proto'],
+          ['b_cog', 'p7_ux', 'Phi_G'],
+          ['p6_lang', 'b_lang', 'Speech'],
+          ['p6_lang', 'ext_io', 'Ollama'],
+          ['b_lang', 'p1_world', 'Tag'],
+          ['b_lang', 'p3_spatial', 'Brake'],
+          ['b_lang', 'p5_gwt', 'Bias0'],
+          ['b_intent', 'p1_world', '4ch調停'],
+          ['p7_ux', 'ext_io', 'UBNT'],
+          ['ext_io', 'p7_ux', 'UBNC']
+        ]
+      },
+
+      loop: {
+        height: 410,
+        defaultNode: 'arb_wb',
+        headers: [
+          { x: 120, y: 18, text: '空間認知・権威候補生成 (60Hz)' },
+          { x: 380, y: 18, text: '二重過程評価 & 基底核タイミング門' },
+          { x: 644, y: 18, text: '最終優先度調停・環境出力' }
+        ],
+        nodes: [
+          { id: 'sp_cand', x: 20, y: 56, w: 200, h: 92, rx: 34, role: 'step', title: '#3 海馬・4層地図・小脳', sub: 'mem_compass[24]\nauth_cand_poses[8,6]',
+            badge: 'Authoritative Proposal | 60 Hz',
+            summary: '48×48認知地図上のDijkstra経路と小脳の弾道偏差予測(lead_aim_xyz)から、移動[0:3]と照準[3:5]を分離した8候補を一元生成します。',
+            rx: 'WORLD3D (1人称レイ・固有受容), COGNITIVE3D (TopDown目標モード・レーン重み・Slot座標)',
+            tx: 'SPATIAL3D (auth_cand_poses[8,6], auth_cand_verbs[8], mem_compass[24]), CH_GAZE_SACCADE (ch=2)',
+            note: 'M0(目標前進)〜M3(側面展開+偏差射撃)〜M4(退避)〜M7(潜伏回復)の8候補定義を全プロセスで共有します。' },
+          { id: 'td_fb', x: 20, y: 256, w: 200, h: 104, rx: 34, role: 'store', title: 'Top-Down 前頭葉帰還', sub: 'goal_mode / focus_xyz\ntd_reward → SNc可塑性',
+            badge: 'Closed-Loop Feedback | COGNITIVE3D → #3',
+            summary: '#5 ConsciousGWTで決定されたマクロ戦術モード・注目3D座標・視覚Slot逆投影・TD報酬誤差を#3 SpatialTimingへ還流します。',
+            rx: '#5 ConsciousGWT (StrategicTransformer3D + ObjectSlotCortex + TD誤差計算)',
+            tx: '#3 海馬・視線制御 (IORサッカード誘導・レーン重み変更) & ドーパミンSNc (STNブレーキ利得[4]のオンライン学習)',
+            note: '未知領域の霧(Volumetric Fog)や視覚予測誤差が大きい方向へ能動的サッカード(Active Gaze)を誘導します。' },
+
+          { id: 's1_fast', x: 280, y: 42, w: 200, h: 78, rx: 34, role: 'step', title: '#4 System1 反射評価', sub: '24 Hz | CH_REFLEX_S1\n有効期限 260 ms',
+            badge: 'Fast Dorsal Path | ch=0 (Fallback Priority)',
+            summary: '意識GWTの計算完了を待たず24Hzで8候補のQ値と速度スケールを推論し、ch=0へ即座に書き込みます。',
+            rx: 'SPATIAL3D (8候補), COGNITIVE3D (直近のgwt_w/rssm_h/z_td)',
+            tx: 'MOTOR_INTENT3D ch=0 (CH_REFLEX_S1), #3/#5の競合検知入力',
+            note: '新しいaction_epoch直後でGWTが未到着の間、エージェントの反応遅延をゼロに保ちます。' },
+          { id: 's2_gwt', x: 280, y: 146, w: 200, h: 92, rx: 34, role: 'focal', title: '#5 ConsciousGWT 熟慮', sub: '12 Hz | Survival Veto\nCH_CONSCIOUS_GWT (450ms)',
+            badge: 'Conscious Deliberation | ch=1 (High Priority)',
+            summary: '3ヘッドRSSMの3ステップ想像結果から危険候補をVeto(拒否)し、ボルツマン方策で選んだ最適候補をch=1へ出力します。',
+            rx: 'SPATIAL3D (8候補), GPU RPC (infer_gwt: Q値 + 生存確率 + 領域前進確率)',
+            tx: 'MOTOR_INTENT3D ch=1 (CH_CONSCIOUS_GWT), COGNITIVE3D (Top-Down帰還)',
+            note: 'Active Escape Veto Exemptionにより、脅威から離れる回避候補(M4等)は低生存予測下でも決してVetoされません。' },
+          { id: 'bg_gate', x: 280, y: 264, w: 200, h: 96, rx: 34, role: 'store', title: '#3 基底核 STN-SNr 門', sub: '60 Hz | Go vs STN Brake\ncommit_gate_open',
+            badge: 'Basal Ganglia Race Model | TIMING3D',
+            summary: 'Go駆動＋Cisek緊急度と4要因STNブレーキ(十字砲火・偏差照準待ち・S1/GWT競合・霧サッカード)の競合積分で発火時期を決めます。',
+            rx: 'COGNITIVE3D (chosen_cand, self_surprise), CH_REFLEX_S1 (競合検知), 小脳リスク予測',
+            tx: 'TIMING3D (commit_gate_open, hold_reason_id) → #1 WorldBridgeへ60Hz直結',
+            note: '回避動詞(EvadeHazard)または開空間での被弾危機時はブレーキを即時バイパス(0ms解放)する安全設計です。' },
+
+          { id: 'arb_wb', x: 544, y: 112, w: 196, h: 152, rx: 36, role: 'focal', title: '#1 WorldBridge 調停器', sub: '優先度: ch1(GWT) > ch0(S1)\n+ TIMING3D 直前照合\n+ ch2 独立視線出力',
+            badge: '60 Hz Final Motor Arbitrator | UBMC 128B',
+            summary: '同一(episode_id, action_epoch)かつ有効期限内のコマンドをch1優先で採択し、60HzのTIMING3Dゲートと結合して環境へ送出します。',
+            rx: 'CH_SYSTEM_CONTROL(ch3), CH_GAZE_SACCADE(ch2), CH_CONSCIOUS_GWT(ch1), CH_REFLEX_S1(ch0), TIMING3D',
+            tx: 'UBMC 128B パケット (target_pose[0:3]移動, target_pose[3:5]独立照準, gaze_ypd[3]視線, commit_gate_open)',
+            note: '睡眠開始(ch3: SLEEP_START)受信時は物理ステップを凍結し、オフライン記憶固定化の整合性を守ります。' }
+        ],
+        edges: [
+          ['sp_cand', 's1_fast', '8候補'],
+          ['sp_cand', 's2_gwt', '8候補'],
+          ['sp_cand', 'arb_wb', 'ch2視線'],
+          ['s1_fast', 'arb_wb', 'ch0(24Hz)'],
+          ['s1_fast', 'bg_gate', '競合検知'],
+          ['s2_gwt', 'arb_wb', 'ch1優先'],
+          ['s2_gwt', 'bg_gate', '採択候補'],
+          ['s2_gwt', 'td_fb', 'TopDown'],
+          ['td_fb', 'sp_cand', '視線/SNc'],
+          ['bg_gate', 'arb_wb', '60Hz門']
+        ]
+      },
+
+      gpu: {
+        height: 430,
+        defaultNode: 'm_gwt',
+        headers: [
+          { x: 116, y: 18, text: '知覚・スロット予測符号化' },
+          { x: 380, y: 18, text: '世界モデル・戦略・GWT点火' },
+          { x: 644, y: 18, text: '自己モデル・価値評価・内言' }
+        ],
+        nodes: [
+          { id: 'm_fov', x: 18, y: 46, w: 196, h: 78, rx: 32, role: 'step', title: 'TT-FovealEncoder', sub: '16x16x4 + Proprio + Compass\n→ latent z [32D]',
+            badge: 'Tensor-Train Encoder | Dorsal Geometry',
+            summary: 'Tensor-Train分解線形層を用いて16×16×4中心窩深度パッチ・固有受容・24Dコンパスを32次元潜在表現zへ圧縮します。',
+            rx: 'fovea_patch[16,16,4], proprio[16], mem_compass[24]',
+            tx: 'z[32] → Slot残差加算(z_perc) → HazardNet / RSSM / ActiveGWT / TT-D3QN',
+            note: '自己教師あり深度再構成ヘッド(decode_depth)を併せ持ち、視覚表現の崩壊を防ぎます。' },
+          { id: 'm_slot', x: 18, y: 152, w: 196, h: 92, rx: 34, role: 'step', title: 'ObjectSlotCortex', sub: '16x16x8 + 予測誤差 + Spotlight\n→ BG(Slot0) + FG(Slot1..3)',
+            badge: 'Predictive Coding Visual Cortex | 4 Slots',
+            summary: 'Slot0を背景・床インク面、Slot1..3を前景物体に非対称分離し、次フレームの16×16×8視覚野を予測して誤差を次ステップへ還流します。',
+            rx: 'vis8[16,16,8] (背側4ch+腹側4ch), prev_pred_err_16, prev_topdown_gain_16, rssm_h',
+            tx: 'slots[4,32], coords[4,3], valence[4,3], delta_z[32], 次フレーム予測 prev_pred_vis8',
+            note: 'ゼロ初期化ゲート付き残差(delta_z)により初期学習を壊さず前景物体情報をz_percへ注入します。' },
+          { id: 'm_topo', x: 18, y: 272, w: 196, h: 92, rx: 34, role: 'store', title: 'TopoGWTAdapter', sub: 'Slots + MEC256 + HD32\n→ slot_ctx64 & Spotlight16',
+            badge: 'Spatial-Visual Bridge & Top-Down Attention',
+            summary: '4物体スロットと海馬MEC格子・頭方向符号を64D文脈へ統合し、さらにGWTからのクロス注意で16×16トップダウン精度スポットライトを生成します。',
+            rx: 'slots[4,32], mec_code[256], hd_code[32], mem_compass[24], gwt_base[128]',
+            tx: 'slot_ctx64[64] (Specialist#0 / RSSM / Brocaへ), delta_gwt[128], topdown_gain_16[16,16]',
+            note: 'GWTの意識内容が次フレームのどの16×16網膜領域のゲインを高めるか(注意のスポットライト)を閉ループ制御します。' },
+
+          { id: 'm_rssm', x: 282, y: 46, w: 196, h: 92, rx: 34, role: 'step', title: '3-Head Cat-RSSM', sub: 'GRU256 + 8x8 Unimix\n3step想像: Rew / Surv / Adv',
+            badge: 'Causal World Model | Horizon = 3',
+            summary: '8候補すべてに対して3ステップ先の開ループ想像ロールアウトを実行し、報酬・悲観的生存確率・前進確率の3ヘッドを同時予測します。',
+            rx: 'prev_h[256], prev_stoch[64], prev_act[32], z_perc[32], slot_ctx64[64], cand_feats[8,32]',
+            tx: 'h_next[256], post_stoch[64], pred_rew[8], pred_surv[8], pred_adv[8], world_surprise(KL)',
+            note: '反事実的露出デコンファウンディングにより、危険な開空間で静止(M7)した仮定の生存確率が楽観化することを防ぎます。' },
+          { id: 'm_strat', x: 282, y: 162, w: 196, h: 82, rx: 32, role: 'step', title: 'Hazard + StratTF', sub: '8履歴系列 + meta_err9\n→ strat64, goal_mode[5]',
+            badge: 'Amygdala Hazard + Prefrontal Transformer',
+            summary: '扁桃体HazardNetの即時脅威と過去8ステップの(GWT, Self, Compass)履歴＋自己予測誤差からマクロ戦術モード5種と視線オフセットを決定します。',
+            rx: 'strat_seq[8,160], meta_err9 (prev_self_err + self_surprise), z_perc, proprio, compass',
+            tx: 'strat_emb[64] (Specialist#4), topdown_goal_mode, topdown_focus_xyz, haz_pred',
+            note: '自己予測誤差(self_surprise)が高まるとゼロ初期化ゲート経由で戦略転換が促されます。' },
+          { id: 'm_gwt', x: 282, y: 268, w: 196, h: 108, rx: 36, role: 'focal', title: 'ActiveGWT (5-Spec)', sub: '視覚・空間・RSSM・身体・戦略\n非線形Ignition門 → gwt_w[128]',
+            badge: '5-Specialist Global Workspace | Ignition Gate',
+            summary: '5つの専門モジュール出力をサリエンス競合させ、閾値を超えた連合のみが急峻なシグモイド点火(ignition)を起こして全体へブロードキャストされます。',
+            rx: 's0(z+slot_ctx), s1(MEC+HD+Comp), s2(RSSM), s3(Prop+Haz), s4(StratTF), prev_gwt, self_surprise',
+            tx: 'gwt_w[128], gwt_alpha[5], ignition, z_td[32] (知覚へのトップダウン変調)',
+            note: '閾値未満ではprev_gwtの作業記憶を保持し、点火時のみ書き込みゲートが大きく開く相転移モデルです。' },
+
+          { id: 'm_self', x: 546, y: 46, w: 196, h: 82, rx: 32, role: 'store', title: 'CoarseSelfModel', sub: 'Attention Schema (alpha[5])\n遠心性コピー → self_surprise',
+            badge: 'HOT / Attention-Schema Metacognition',
+            summary: '現在の自己状態[8D]と、前回行動＋注意配分(prev_alpha)の遠心性コピー予測との誤差(self_surprise)を算出し、全系へ還流します。',
+            rx: 'gwt_w[128], proprio[16], gwt_alpha[5], prev_self[8], prev_act[32], prev_alpha[5]',
+            tx: 'self_state[8], self_surprise, self_err_vec[8] → StratTF / ActiveGWT / BG競合ブレーキ',
+            note: '想定外の事態(高self_surprise)でGWT点火閾値を下げ、方策温度を上げて固着からの脱出を促します。' },
+          { id: 'm_d3qn', x: 546, y: 154, w: 196, h: 92, rx: 34, role: 'focal', title: 'TT-D3QN Evaluator', sub: '768D統合状態 × 8候補(32D)\n→ q_raw[8], speed_mod[8]',
+            badge: 'Dueling Double-DQN + Speed Modulator',
+            summary: '知覚z_eff・意識gwt_w・世界rssm_h・空間MEC/HD・身体・コンパスの全744D(768Dパディング)と8候補特徴からQ値と速度を算出します。',
+            rx: 'z_eff(z_perc+z_td), gwt_w[128], rssm_h[256], mec[256], hd[32], proprio[16], compass[24], cand_feats[8,32]',
+            tx: 'q_raw[8] (+ RSSM報酬/前進/RVQ事前バイアスと融合 → q_values[8]), speed_mod[8]',
+            note: 'S1高速反射(infer_s1)とGWT熟慮(infer_gwt)の双方が同一ネットワーク重みを共有して評価します。' },
+          { id: 'm_lang', x: 546, y: 272, w: 196, h: 104, rx: 34, role: 'step', title: 'RVQ + Broca / Grounder', sub: '32×8離散象徴 + MIL-InfoNCE\nPlan-A: Motor Bias = 0.0',
+            badge: 'Proto-Symbol RVQ & Grounded Inner Speech',
+            summary: '(gwt_w, self_s, rssm_h)を2段階RVQで離散象徴化し、前景Slot(1..3)との対照学習で接地された内言を自己モニタリング生成します。',
+            rx: 'gwt_w[128], self_s[8], rssm_h[256], slot_ctx64[64], slot_pstats/coords',
+            tx: 'proto_sym_id, proto_prior_bias[8], 日本語内言トークン列 (Plan-Aではcand_bias=0.0)',
+            note: '弓状束ループ(Broca2候補生成→Wernicke符号化→視覚Slot余弦照合)で最も視覚状況に合致する発話を選択します。' }
+        ],
+        edges: [
+          ['m_fov', 'm_slot', 'z'],
+          ['m_slot', 'm_topo', '4Slots'],
+          ['m_topo', 'm_slot', 'Spot16'],
+          ['m_topo', 'm_rssm', 'ctx64'],
+          ['m_fov', 'm_rssm', 'z_perc'],
+          ['m_fov', 'm_strat', 'z_perc'],
+          ['m_topo', 'm_gwt', 's0/Spot'],
+          ['m_rssm', 'm_gwt', 's2(h/st)'],
+          ['m_strat', 'm_gwt', 's4(64D)'],
+          ['m_gwt', 'm_topo', 'gwt_base'],
+          ['m_gwt', 'm_self', 'gwt+alpha'],
+          ['m_self', 'm_strat', 'meta_err9'],
+          ['m_self', 'm_gwt', 'surprise'],
+          ['m_gwt', 'm_d3qn', 'gwt+z_td'],
+          ['m_rssm', 'm_d3qn', 'h+Surv/Adv'],
+          ['m_gwt', 'm_lang', 'gwt_w'],
+          ['m_topo', 'm_lang', 'ctx64']
+        ]
+      }
+    };
+
+    let currentViewKey = 'ipc';
+    let selectedNodeId = VIEWS.ipc.defaultNode;
+
+    const svgEl = document.getElementById('wiring-svg');
+    const gHeaders = document.getElementById('svg-headers');
+    const gEdgesBg = document.getElementById('svg-edges-bg');
+    const gEdgesActive = document.getElementById('svg-edges-active');
+    const gNodes = document.getElementById('svg-nodes');
+
+    function svgCreate(tag, attrs = {}) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        el.setAttribute(k, String(v));
+      }
+      return el;
+    }
+
+    function buildOrthoPath(n1, n2, idxOffset = 0) {
+      const c1x = n1.x + n1.w / 2;
+      const c1y = n1.y + n1.h / 2;
+      const c2x = n2.x + n2.w / 2;
+      const c2y = n2.y + n2.h / 2;
+      const sameCol = Math.abs(c1x - c2x) < 40;
+
+      if (sameCol) {
+        const side = c1x < 300 ? -1 : 1;
+        const sx = side < 0 ? n1.x - 6 : n1.x + n1.w + 6;
+        const ex = side < 0 ? n2.x - 8 : n2.x + n2.w + 8;
+        const laneX = side < 0 ? Math.max(6, n1.x - 14) : Math.min(754, n1.x + n1.w + 14);
+        const sy = c1y + idxOffset * 4;
+        const ey = c2y + idxOffset * 4;
+        return {
+          d: `M ${sx} ${sy} L ${laneX} ${sy} L ${laneX} ${ey} L ${ex} ${ey}`,
+          mx: laneX,
+          my: (sy + ey) / 2
+        };
+      }
+
+      const goingRight = c2x > c1x;
+      const sx = goingRight ? n1.x + n1.w + 7 : n1.x - 7;
+      const ex = goingRight ? n2.x - 9 : n2.x + n2.w + 9;
+      const sy = c1y + idxOffset * 5;
+      const ey = c2y - idxOffset * 5;
+      const midX = (sx + ex) / 2 + idxOffset * 8;
+
+      if (Math.abs(sy - ey) < 6) {
+        return {
+          d: `M ${sx} ${sy} L ${ex} ${ey}`,
+          mx: midX,
+          my: sy
+        };
+      }
+
+      const r = Math.min(12, Math.abs(ey - sy) / 2, Math.abs(ex - sx) / 4);
+      const dirX = goingRight ? 1 : -1;
+      const dirY = ey > sy ? 1 : -1;
+      const d = [
+        `M ${sx} ${sy}`,
+        `L ${midX - dirX * r} ${sy}`,
+        `Q ${midX} ${sy} ${midX} ${sy + dirY * r}`,
+        `L ${midX} ${ey - dirY * r}`,
+        `Q ${midX} ${ey} ${midX + dirX * r} ${ey}`,
+        `L ${ex} ${ey}`
+      ].join(' ');
+      return { d, mx: midX, my: (sy + ey) / 2 };
+    }
+
+    function renderDiagram() {
+      const view = VIEWS[currentViewKey];
+      svgEl.setAttribute('viewBox', `0 0 760 ${view.height}`);
+      gHeaders.replaceChildren();
+      gEdgesBg.replaceChildren();
+      gEdgesActive.replaceChildren();
+      gNodes.replaceChildren();
+
+      const nodeMap = {};
+      view.nodes.forEach(n => { nodeMap[n.id] = n; });
+      if (!nodeMap[selectedNodeId]) {
+        selectedNodeId = view.defaultNode;
+      }
+
+      view.headers.forEach(h => {
+        const t = svgCreate('text', {
+          x: h.x,
+          y: h.y,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'central',
+          'font-size': '12',
+          'font-weight': '400',
+          fill: 'var(--on-surface-variant)'
+        });
+        t.textContent = h.text;
+        gHeaders.appendChild(t);
+      });
+
+      const txPeers = new Set();
+      const rxPeers = new Set();
+      let activeIdx = 0;
+
+      view.edges.forEach(([u, v, label]) => {
+        const nu = nodeMap[u];
+        const nv = nodeMap[v];
+        if (!nu || !nv) return;
+
+        if (u === selectedNodeId) {
+          txPeers.add(v);
+          const geom = buildOrthoPath(nu, nv, (activeIdx % 3) - 1);
+          activeIdx += 1;
+          gEdgesActive.appendChild(svgCreate('path', {
+            d: geom.d,
+            class: 'edge-tx',
+            fill: 'none',
+            'marker-end': 'url(#lumi-caret-tx)'
+          }));
+          if (label) {
+            const pw = Math.max(40, label.length * 7.2 + 14);
+            gEdgesActive.appendChild(svgCreate('rect', {
+              'data-role': 'edge-pill',
+              x: geom.mx - pw / 2,
+              y: geom.my - 10,
+              width: pw,
+              height: 20,
+              rx: 10,
+              fill: 'var(--accent-container)'
+            }));
+            const pt = svgCreate('text', {
+              x: geom.mx,
+              y: geom.my,
+              'text-anchor': 'middle',
+              'dominant-baseline': 'central',
+              'font-size': '12',
+              'font-style': 'italic',
+              'font-weight': '400',
+              'font-family': 'var(--ff-mono)',
+              fill: 'var(--on-surface)'
+            });
+            pt.textContent = label;
+            gEdgesActive.appendChild(pt);
+          }
+        } else if (v === selectedNodeId) {
+          rxPeers.add(u);
+          const geom = buildOrthoPath(nu, nv, ((activeIdx + 1) % 3) - 1);
+          activeIdx += 1;
+          gEdgesActive.appendChild(svgCreate('path', {
+            d: geom.d,
+            class: 'edge-rx',
+            fill: 'none',
+            'marker-end': 'url(#lumi-caret-rx)'
+          }));
+          if (label) {
+            const pw = Math.max(40, label.length * 7.2 + 14);
+            gEdgesActive.appendChild(svgCreate('rect', {
+              'data-role': 'edge-pill',
+              x: geom.mx - pw / 2,
+              y: geom.my - 10,
+              width: pw,
+              height: 20,
+              rx: 10,
+              fill: 'var(--positive-container)'
+            }));
+            const pt = svgCreate('text', {
+              x: geom.mx,
+              y: geom.my,
+              'text-anchor': 'middle',
+              'dominant-baseline': 'central',
+              'font-size': '12',
+              'font-style': 'italic',
+              'font-weight': '400',
+              'font-family': 'var(--ff-mono)',
+              fill: 'var(--on-surface)'
+            });
+            pt.textContent = label;
+            gEdgesActive.appendChild(pt);
+          }
+        } else {
+          const geom = buildOrthoPath(nu, nv, 0);
+          gEdgesBg.appendChild(svgCreate('path', {
+            d: geom.d,
+            class: 'edge-bg',
+            fill: 'none',
+            'marker-end': 'url(#lumi-caret-bg)'
+          }));
+        }
+      });
+
+      view.nodes.forEach(n => {
+        const isSel = n.id === selectedNodeId;
+        const isTx = txPeers.has(n.id);
+        const isRx = rxPeers.has(n.id);
+        const cls = ['node-g'];
+        if (isSel) cls.push('is-selected');
+        else if (isTx) cls.push('is-peer-tx');
+        else if (isRx) cls.push('is-peer-rx');
+        else cls.push('is-dimmed');
+
+        const g = svgCreate('g', { class: cls.join(' '), tabindex: '0', 'data-id': n.id });
+        const rectClass = n.role === 'focal' ? 'node-focal-shape' : (n.role === 'store' ? 'node-store-shape' : 'node-step-shape');
+        g.appendChild(svgCreate('rect', {
+          class: rectClass,
+          x: n.x,
+          y: n.y,
+          width: n.w,
+          height: n.h,
+          rx: n.rx
+        }));
+
+        const lines = n.sub.split('\n');
+        const cx = n.x + n.w / 2;
+        const cy = n.y + n.h / 2;
+        const titleY = lines.length === 1 ? cy - 9 : (lines.length === 2 ? cy - 16 : cy - 22);
+
+        const tMain = svgCreate('text', {
+          x: cx,
+          y: titleY,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'central',
+          'font-size': '13.5',
+          'font-weight': '400',
+          fill: 'var(--on-surface)'
+        });
+        tMain.textContent = n.title;
+        g.appendChild(tMain);
+
+        lines.forEach((ln, idx) => {
+          const tSub = svgCreate('text', {
+            x: cx,
+            y: titleY + 17 + idx * 15,
+            'text-anchor': 'middle',
+            'dominant-baseline': 'central',
+            'font-size': '12',
+            'font-weight': '400',
+            'font-family': 'var(--ff-mono)',
+            fill: 'var(--on-surface-variant)'
+          });
+          tSub.textContent = ln;
+          g.appendChild(tSub);
+        });
+
+        g.addEventListener('click', () => {
+          selectedNodeId = n.id;
+          renderDiagram();
+        });
+        g.addEventListener('keydown', ev => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            selectedNodeId = n.id;
+            renderDiagram();
+          }
+        });
+        gNodes.appendChild(g);
+      });
+
+      const sel = nodeMap[selectedNodeId];
+      if (sel) {
+        document.getElementById('detail-title').textContent = sel.title;
+        document.getElementById('detail-badge').textContent = sel.badge;
+        document.getElementById('detail-summary').textContent = sel.summary;
+        document.getElementById('detail-rx').textContent = sel.rx;
+        document.getElementById('detail-tx').textContent = sel.tx;
+        document.getElementById('detail-note').textContent = sel.note;
+      }
+    }
+
+    document.querySelectorAll('.lumi-segmented-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.lumi-segmented-btn').forEach(b => b.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        currentViewKey = btn.dataset.view || 'ipc';
+        selectedNodeId = VIEWS[currentViewKey].defaultNode;
+        renderDiagram();
+      });
+    });
+
+    renderDiagram();
+  </script>
+
+<script>/*luminous-slider-normalizer*/(function(){function f(r){if(!r||r.type!=='range')return;var mn=parseFloat(r.min||'0'),mx=parseFloat(r.max||'100'),v=parseFloat(r.value);if(isNaN(v))v=(mn+mx)/2;var p=mx>mn?((v-mn)/(mx-mn))*100:50;r.style.setProperty('--progress',p+'%');r.style.removeProperty('--slider-fill');}function all(){document.querySelectorAll('input[type="range"], .lumi-slider').forEach(f);}document.addEventListener('input',function(e){f(e.target);});document.addEventListener('change',function(e){f(e.target);});window.addEventListener('message',function(e){var d=e&&e.data;if(d&&(d.type==='SUPPLEMENTAL_DATA_UPDATE'||d.type==='RESTORE_STATE')){all();setTimeout(all,0);setTimeout(all,50);}});if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){all();setTimeout(all,0);});else{all();setTimeout(all,0);}})();</script>
+</body>
+</html>
