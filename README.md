@@ -171,3 +171,15 @@ In accordance with contemporary open-science transparency standards, the author 
 13. Cisek, P., Puskas, G. A., & El-Murr, S. (2009). Decisions in changing conditions: The urgency-gating model. *Journal of Neuroscience*, 29(37), 11560–11571.
 14. Yamakawa, H. (2021). The whole brain architecture approach: Accelerating the development of artificial general intelligence by referring to the brain. *Neural Networks*, 144, 478–495.
 15. Vygotsky, L. S. (1934/1986). *Thought and Language*. MIT Press.
+
+## 8. Copyright, Licenses, and Intellectual Property Rights
+
+The 3D tactical arena (**InkBlitz 3D**) included in this project is an original research simulator adopting general "territory-painting and objective-escort" game mechanics. It is not an official application of any existing product and has no affiliation whatsoever with any commercial game titles or publishers.
+
+All assets in this environment—including procedural 3D terrain meshes, primitive geometry, shaders, 48 kHz mathematically synthesized sound effects (`generate_sfx_pack.py`), UI code, and the underlying cognitive AI architecture—have been originally created from scratch, containing zero extracted data or third-party commercial game assets.
+
+The original source code of this project is released under the **GNU General Public License v3.0 (GPL-3.0-only)** for cognitive science research, educational use, and reinforcement learning experiments. Runtime engines and external open-source libraries remain governed by their respective licenses and trademark owners:
+
+* **Unity** is a trademark or registered trademark of Unity Technologies or its affiliates.
+* **PyTorch** is a trademark of The Linux Foundation (distributed under a BSD-style license).
+* **NumPy** is distributed under the BSD 3-Clause License.
