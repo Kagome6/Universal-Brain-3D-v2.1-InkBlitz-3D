@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CITATION.cff)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](requirements.txt)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24417716.svg)](https://doi.org/10.5281/zenodo.24417716)
 
 > **日本語要約（Japanese Summary）**
 > 本リポジトリ／アーカイブは、部分観測・動的3D空間でリアルタイム（60 Hz）に閉ループ動作する機能主義・全脳型認知アーキテクチャ **`Universal Brain 3D (v2.1)`** と、その検証用にゼロから独自構築された180度点対称3Dペイント領域＆コア搬送シミュレータ **`InkBlitz 3D`** の研究実装です。
