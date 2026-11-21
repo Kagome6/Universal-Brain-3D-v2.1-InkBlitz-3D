@@ -1,0 +1,25 @@
+MIT License (Applies to Unity 3D Arena 'InkBlitz 3D' & All C# Scripts: *.cs)
+=============================================================================
+
+Copyright (c) 2026 Alpha496 (Independent Researcher)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of the Unity C# bridge/arena scripts and original InkBlitz 3D simulation assets
+(the "Unity Environment Software"), to deal in the Unity Environment Software
+without restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Unity Environment Software, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Unity Environment Software.
+
+THE UNITY ENVIRONMENT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+Note on Component Boundary:
+- All Python cognitive engine modules (*.py) run as separate OS processes over
+  localhost TCP sockets and remain licensed under GNU GPL v3.0 (see LICENSE).
+- Bundled Unity Engine runtime binaries (e.g., UnityPlayer.dll) in standalone
+  player builds remain the property of Unity Technologies under Unity's standard
+  player redistribution terms.
