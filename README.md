@@ -178,8 +178,14 @@ The 3D tactical arena (**InkBlitz 3D**) included in this project is an original 
 
 All assets in this environment—including procedural 3D terrain meshes, primitive geometry, shaders, 48 kHz mathematically synthesized sound effects (`generate_sfx_pack.py`), UI code, and the underlying cognitive AI architecture—have been originally created from scratch, containing zero extracted data or third-party commercial game assets.
 
-The original source code of this project is released under the **GNU General Public License v3.0 (GPL-3.0-only)** for cognitive science research, educational use, and reinforcement learning experiments. Runtime engines and external open-source libraries remain governed by their respective licenses and trademark owners:
+### Component-Split Open-Source Licensing
+Because the Python cognitive engine and the Unity 3D simulator execute as separate OS processes communicating strictly over localhost TCP sockets (`UB3D` / `UBMC`), they are licensed cleanly per component for full compliance with Unity runtime redistribution terms:
 
-* **Unity** is a trademark or registered trademark of Unity Technologies or its affiliates.
+* **Python Whole-Brain Cognitive Engine & Trainers (`*.py`)**: Released under the **[GNU General Public License v3.0 only (GPL-3.0-only)](LICENSE)**.
+* **Unity 3D Arena C# Scripts & *InkBlitz 3D* Environment (`*.cs` & original scene/assets)**: Released under the permissive **[MIT License](LICENSE_UNITY_MIT.txt)**, permitting clean linkage and redistribution alongside the proprietary Unity Engine Runtime without copyleft propagation.
+
+Runtime engines and external open-source libraries remain governed by their respective licenses and trademark owners:
+
+* **Unity** (including bundled `UnityPlayer.dll` runtime components in standalone builds, © Unity Technologies) is a trademark or registered trademark of Unity Technologies or its affiliates.
 * **PyTorch** is a trademark of The Linux Foundation (distributed under a BSD-style license).
 * **NumPy** is distributed under the BSD 3-Clause License.
