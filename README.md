@@ -127,7 +127,9 @@ In parallel with fast reflexes, `ConsciousGWTProcess` performs multi-step imagin
 To prevent blind overconfidence under unfamiliar dynamics, the architecture monitors its own internal coherence:
 - **Higher-Order Self-Model (`CoarseSelfModel3D`)**: Using motor efference copies, the brain predicts its own upcoming attentional focus and bodily state transition (Graziano, 2013; Lau & Rosenthal, 2011). High `self_surprise` (when internal or somatic reality deviates from expectation) dynamically adjusts workspace ignition thresholds, planning horizon, basal-ganglia caution, and exploration temperature.
 - **Online Causal Integration ($\Phi_G$)**: Rather than treating "whole-brain integration" purely as a metaphor, the engine continuously measures lagged causal information flow (`t-1 -> t`) across all 15 bipartitions of the 5 cortical specialists (Oizumi, Tsuchiya, & Amari, 2016):
+
   $$\Phi_G = \min_{\pi} \min_{q \in \mathcal{M}_G(\pi)} D_{\mathrm{KL}}\!\left(p(X^{t-1}, X^t) \,\|\, q(X^{t-1}, X^t)\right)$$
+
   streaming both $\Phi_G$ and the weakest inter-module link (Minimum Information Partition) live to the diagnostic HUD (`UBNT`).
 
 ### Stage 6: Motor-Isolated Inner Speech (`Plan-A`) & 4-Phase Offline Sleep (`S-1..S-4`)
