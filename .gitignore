@@ -1,0 +1,51 @@
+# Binary weights & runtime datasets (NEVER commit directly to git; attach champion .pt to Releases/Zenodo if desired)
+*.pt
+*.pth
+*.h5
+*.data-00000-of-00001
+*.pkl
+*.index
+*.npz
+*.onnx
+checkpoint
+checkpoints/
+.whisper_models/
+logs/
+wm_data/
+wm_data*/
+sounds/
+runs/
+experiments/
+temp_models/
+
+# Distribution ZIP bundles & Standalone Unity Player builds (attach to GitHub Releases / Zenodo instead)
+dist/
+Build/
+*.zip
+
+# Python virtual environments & caches
+venv/
+.venv/
+.env/
+env/
+__pycache__/
+*.py[cod]
+*.tmp
+*.bak
+*.log
+
+# Local development backups & internal agent notes
+頭脳バックアップ/
+AGENTS.md
+HANDOFF_ARCHITECTURE_GUIDE.md
+
+# Unity generated caches (matches any Unity project subdirectory cleanly)
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
+**/Screenshots/
+*.csproj
+*.sln
