@@ -17,6 +17,7 @@
 ## 1. Overview & Design Philosophy
 
 **Universal Brain 3D (v2.1)** is a domain-agnostic cognitive engine built to study how distinct brain-inspired subsystems—spatial memory, fast motor reflexes, world-model imagination, conscious workspace broadcasting, metacognitive self-monitoring, grounded inner speech, and offline sleep—work together inside a **real-time 60 Hz sensorimotor closed loop** under strict 1st-person partial observability (POMDP).
+To ground these mechanisms in a demanding dynamic task without relying on commercial game assets, the engine is paired with **InkBlitz 3D**—an original symmetric 3D tactical arena (with a pure-Python headless counterpart) where agents paint territory for high-speed stealth movement and escort a central `BlitzCore` objective.
 
 Rather than claiming ion-channel biological realism or asserting phenomenal consciousness, this project takes a **testable functionalist systems-engineering approach** (Yamakawa, 2021; Butlin et al., 2023):
 1. **Whole-System Integration First**: Run all fast and slow cognitive loops concurrently over a fault-tolerant, lock-free multi-process runtime ("a real-time cognitive microkernel") with explicit inter-region interfaces.
@@ -59,6 +60,19 @@ flowchart TB
 ### Architectural Invariants & Fault Tolerance
 - **Strict `Barrier 1` Isolation**: Only `GPUInferenceProcess` (or `PopGPUServer` during parallel self-play) initializes `torch`. All CPU processes assert `"torch" not in sys.modules`, serializing IPC weight snapshots strictly as `numpy.ndarray` to eliminate Windows pagefile exhaustion.
 - **100% Anchor Rollback on Numerical Faults**: If an online gradient step or extreme reward spike induces `NaN`/`Inf` or a Q-value spike exceeding safety bounds, `WholeBrainNeuralEngineWrapper` immediately restores the last verified anchor weights and clears Adam optimizer momentum (`optimizer.state.clear()`).
+
+### Repository File Structure
+* `universal_brain_3d_core.py`: Main CLI entry point, 7-process orchestrator, and 7-stage `verify_all` self-test suite.
+* `brain3d_config_ipc.py`: Zero-PyTorch (`Barrier 1`) config, `SeqLock + CRC32` shared-memory buses, and `UB3D`/`UBMC` wire protocol.
+* `brain3d_torch_models.py`: PyTorch definitions for all 11 neural modules (Retinotopic/Slot vision, 3-Head Categorical RSSM, `ActiveGWTWorkspace3D`, `CoarseSelfModel3D`, `TT-D3QN`, `EndogenousBrocaWernickeCortex`).
+* `brain3d_neural_engine.py`: Single-GPU batched RPC wrapper, `NaN`/Q-spike anchor rollback, Oizumi-2016 causal $\Phi_G$ estimator, and 4-phase offline sleep (`S-1..S-4`).
+* `brain3d_spatial_timing.py`: 60 Hz 3D grid/HD cells, stationary-landmark EKF-SLAM, `48x48` 4-layer map, cerebellar 3D lead-aim, and `STN-SNr` timing gate.
+* `brain3d_cognitive_procs.py`: CPU worker loops for `System1ReflexProcess`, `ConsciousGWTProcess`, `LanguageCortexProcess`, and live telemetry servers.
+* `brain3d_arena_env.py` & `task_profiles_3d.py`: Pure-Python built-in 3D tactical arena and domain-agnostic embodiment profiles (`turf_objective`, etc.).
+* `arena_pbt_trainer.py`: Single-GPU (`PopGPUServer`) 180-degree symmetric self-play league (DAgger bootstrap, PFSP matchmaking, Elo tracking, and inter-generation sleep).
+* `strategy_knowledge_engine.py` & `companion_voice_io.py`: Optional strategic knowledge distillation and read-only voice/commentary utilities.
+* `generate_sfx_pack.py`: Procedural 48 kHz mathematical synthesizer generating all original game audio from scratch.
+* `unity_bridge_template/` & Unity C# (`InkBlitz3D`): MIT-licensed 60 Hz TCP sensorimotor bridge, `InkBlitz 3D` arena mechanics, and real-time neural HUDs.
 
 ---
 
@@ -134,21 +148,6 @@ Depending on real-time tactical risk and prediction error, control authority shi
 
 ---
 
-### Repository File Structure
-* `universal_brain_3d_core.py`: Main CLI entry point, 7-process orchestrator, and 7-stage `verify_all` self-test suite.
-* `brain3d_config_ipc.py`: Zero-PyTorch (`Barrier 1`) config, `SeqLock + CRC32` shared-memory buses, and `UB3D`/`UBMC` wire protocol.
-* `brain3d_torch_models.py`: PyTorch definitions for all 11 neural modules (Retinotopic/Slot vision, 3-Head Categorical RSSM, `ActiveGWTWorkspace3D`, `CoarseSelfModel3D`, `TT-D3QN`, `EndogenousBrocaWernickeCortex`).
-* `brain3d_neural_engine.py`: Single-GPU batched RPC wrapper, `NaN`/Q-spike anchor rollback, Oizumi-2016 causal $\Phi_G$ estimator, and 4-phase offline sleep (`S-1..S-4`).
-* `brain3d_spatial_timing.py`: 60 Hz 3D grid/HD cells, stationary-landmark EKF-SLAM, `48x48` 4-layer map, cerebellar 3D lead-aim, and `STN-SNr` timing gate.
-* `brain3d_cognitive_procs.py`: CPU worker loops for `System1ReflexProcess`, `ConsciousGWTProcess`, `LanguageCortexProcess`, and live telemetry servers.
-* `brain3d_arena_env.py` & `task_profiles_3d.py`: Pure-Python built-in 3D tactical arena and domain-agnostic embodiment profiles (`turf_objective`, etc.).
-* `arena_pbt_trainer.py`: Single-GPU (`PopGPUServer`) 180-degree symmetric self-play league (DAgger bootstrap, PFSP matchmaking, Elo tracking, and inter-generation sleep).
-* `strategy_knowledge_engine.py` & `companion_voice_io.py`: Optional strategic knowledge distillation and read-only voice/commentary utilities.
-* `generate_sfx_pack.py`: Procedural 48 kHz mathematical synthesizer generating all original game audio from scratch.
-* `unity_bridge_template/` & Unity C# (`InkBlitz3D`): MIT-licensed 60 Hz TCP sensorimotor bridge, `InkBlitz 3D` arena mechanics, and real-time neural HUDs.
-
----
-
 
 ## 4. Quick Start & Built-in Verification
 
@@ -176,7 +175,7 @@ python -B arena_pbt_trainer.py --mode verify_pbt
 ### Running Headless Built-in 3D Arena or Launching with `InkBlitz 3D` (Unity)
 | Use Case | Command / Procedure |
 | :--- | :--- |
-| **Interactive GUI Launcher (Recommended with Unity Build)** | Download `inkblitz_3d_v2_1_win64_bundle.zip` from **GitHub Releases** (or Zenodo), extract `Build/InkBlitz3D/` and `checkpoints/` into the repository root (with `.venv` or `venv` configured), and launch **`InkBlitz3D.exe`** to run **PBT Training** or **Inference Spectate** from the GUI. |
+| **Interactive GUI Launcher (Recommended with Unity Build)** | Download the Windows 64-bit standalone archive (e.g., InkBlitz3D_Win64.zip / inkblitz_3d_v2_1_win64_bundle.zip) from GitHub Releases or Zenodo, extract `Build/InkBlitz3D/` and `checkpoints/` into the repository root (with `.venv` or `venv` configured), and launch **`InkBlitz3D.exe`** to run **PBT Training** or **Inference Spectate** from the GUI. |
 | **Headless Built-in 3D Arena (Pure Python)** | `python -B universal_brain_3d_core.py --mode play --env builtin_3d --task-profile turf_objective` |
 | **Manual CLI Unity TCP Session (1v1)** | Start `python -B universal_brain_3d_core.py --mode play --env unity_tcp --port 50055 --task-profile turf_objective`, then connect Unity on `127.0.0.1:50055`. |
 | **Parallel Competitive Self-Play PBT** | `python -B arena_pbt_trainer.py --mode train --env builtin_3d --pop-size 4 --generations 8` |
@@ -262,6 +261,8 @@ In accordance with contemporary open-science transparency standards, the author 
 13. Cisek, P., Puskas, G. A., & El-Murr, S. (2009). Decisions in changing conditions: The urgency-gating model. *Journal of Neuroscience*, 29(37), 11560–11571.
 14. Yamakawa, H. (2021). The whole brain architecture approach: Accelerating the development of artificial general intelligence by referring to the brain. *Neural Networks*, 144, 478–495.
 15. Vygotsky, L. S. (1934/1986). *Thought and Language*. MIT Press.
+
+---
 
 ## 8. Copyright, Licenses, and Intellectual Property Rights
 
