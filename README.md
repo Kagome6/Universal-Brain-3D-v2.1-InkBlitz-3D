@@ -1,15 +1,15 @@
-# Universal Brain 3D (v2.1) & InkBlitz 3D
+# Universal Brain 3D (v2.2) & InkBlitz 3D
 
 **Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments**
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CITATION.cff)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](CITATION.cff)
 [![License: GPL v3](https://img.shields.io/badge/Python_Brain-GPLv3-blue.svg)](LICENSE)
 [![License: MIT](https://img.shields.io/badge/Unity_Arena-MIT-green.svg)](LICENSE_UNITY_MIT.txt)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](requirements.txt)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24417716.svg)](https://doi.org/10.5281/zenodo.24417716)
 
 > **日本語要約（Japanese Summary）**
-> 本リポジトリは、壁裏やインク潜伏中の敵が見えない「正直な一人称視点（部分観測3D空間）」でリアルタイム（60 Hz）に閉ループ動作する全脳型認知アーキテクチャ **`Universal Brain 3D (v2.1)`** と、その検証用にゼロから自作した180度点対称の3D領域塗り＆コア搬送対戦環境 **`InkBlitz 3D`** の研究実装です。
+> 本リポジトリは、壁裏やインク潜伏中の敵が見えない「正直な一人称視点（部分観測3D空間）」でリアルタイム（60 Hz）に閉ループ動作する全脳型認知アーキテクチャ **`Universal Brain 3D (v2.2)`** と、その検証用にゼロから自作した180度点対称の3D領域塗り＆コア搬送対戦環境 **`InkBlitz 3D`** の研究実装です。
 > 本プロジェクトは、HBPのような「神経細胞レベルの物理シミュレート」でも、日本の全脳アーキテクチャ（WBA）のような「生の脳解剖回路に忠実なボトムアップ再現」でも、Google DeepMindのような「個別認知モジュールや単一巨大方策の追求」でもなく、**WBA的な『多時間スケールの全脳機能分業』の枠組みの中に、DeepMind系を中心とする実績ある機械学習部品（`D3QN`・`RSSM`・`Slot Attention`・`PBT/PFSP` 等）を安全制約付きで組み込んだ「実用的な中間アプローチ」** を採っています。
 > OSのように分離された7つの非同期プロセス（単一GPU専有1＋CPU6）の上で、**①海馬の空間地図記憶（EKF-SLAM）**、**②小脳の3D偏差射撃とSystem 1の高速反射（60/24 Hz）**、**③世界モデルによる3手先の反実仮想予測と大域ワークスペース（GNWT）の意識統合（10 Hz）**、**④自己モデルと因果統合情報量 $\Phi_G$ のリアルタイム計測**、**⑤運動系から安全隔離された内言と世代間の睡眠学習（S-1〜S-4）** を同時に協調動作させています。**Unity無しのPython単体でも、全7段階の自動検証スイート（`--mode verify_all`）と内蔵3Dアリーナ実験がそのまま完結します。**
 
@@ -21,7 +21,7 @@
 
 ## 1. Overview & Design Philosophy
 
-**Universal Brain 3D (v2.1)** is a domain-agnostic cognitive engine built to study how distinct brain-inspired subsystems—spatial memory, fast motor reflexes, world-model imagination, conscious workspace broadcasting, metacognitive self-monitoring, grounded inner speech, and offline sleep—work together inside a **real-time 60 Hz sensorimotor closed loop** under strict 1st-person partial observability (POMDP).
+**Universal Brain 3D (v2.2)** is a domain-agnostic cognitive engine built to study how distinct brain-inspired subsystems—spatial memory, fast motor reflexes, world-model imagination, conscious workspace broadcasting, metacognitive self-monitoring, grounded inner speech, and offline sleep—work together inside a **real-time 60 Hz sensorimotor closed loop** under strict 1st-person partial observability (POMDP).
 To ground these mechanisms in a demanding dynamic task without relying on commercial game assets, the engine is paired with **InkBlitz 3D**—an original symmetric 3D tactical arena (with a pure-Python headless counterpart) where agents paint territory for high-speed stealth movement and escort a central `BlitzCore` objective.
 
 Rather than claiming ion-channel biological realism or asserting phenomenal consciousness, this project takes a **testable functionalist systems-engineering approach** (Yamakawa, 2021; Butlin et al., 2023):
@@ -31,9 +31,9 @@ Rather than claiming ion-channel biological realism or asserting phenomenal cons
 
 ### Research Positioning: A Pragmatic Middle Ground
 
-When building a "brain-inspired AI," existing research generally falls into three distinct paradigms—none of which alone satisfies real-time 60 Hz embodied control with modular cognitive transparency on a single workstation. **Universal Brain 3D (v2.1)** intentionally occupies an engineering middle ground:
+When building a "brain-inspired AI," existing research generally falls into three distinct paradigms—none of which alone satisfies real-time 60 Hz embodied control with modular cognitive transparency on a single workstation. **Universal Brain 3D (v2.2)** intentionally occupies an engineering middle ground:
 
-| Paradigm | Representative Lineage | Core Focus | How Universal Brain 3D (v2.1) Differs |
+| Paradigm | Representative Lineage | Core Focus | How Universal Brain 3D (v2.2) Differs |
 | :--- | :--- | :--- | :--- |
 | **Biophysical Brain Simulation** | Human Brain Project / Blue Brain (Markram et al., 2015) | Ion-channel, compartment, and spiking microcircuit fidelity. | **Not cellular simulation**: We abstract away biophysical spiking to achieve deterministic 60 Hz 3D sensorimotor control on a single consumer GPU. |
 | **Anatomical Brain Reference Architecture** | Whole Brain Architecture / WBRA (Yamakawa, 2021) | Mapping software modules closely onto biological mesoscopic subcircuits. | **Looser, loop-first functionalism**: Rather than enforcing strict anatomical circuit isomorphism upfront, we prioritize closing the full 60 Hz sensorimotor–workspace–sleep loop first (treating selective WBRA motifs as a future refinement). |
@@ -96,7 +96,7 @@ flowchart TB
 
 Standard deep reinforcement learning typically compresses perception and control into a single monolithic network (`observation -> network -> action`). When fast survival reflexes (16 ms) and deeper multi-step planning (100 ms) are forced into one synchronous loop, the agent either stalls while "thinking" or sacrifices foresight for speed.
 
-**Universal Brain 3D (v2.1)** resolves this by organizing cognition into **multi-timescale functional brain regions** that run concurrently and close the loop from 1st-person sensation to motor execution and offline sleep:
+**Universal Brain 3D (v2.2)** resolves this by organizing cognition into **multi-timescale functional brain regions** that run concurrently and close the loop from 1st-person sensation to motor execution and offline sleep:
 
 ```text
 [Stage 1: 1st-Person Senses (60 Hz)]
