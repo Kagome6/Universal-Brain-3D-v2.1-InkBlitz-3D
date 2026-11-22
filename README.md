@@ -10,7 +10,8 @@
 
 > **日本語要約（Japanese Summary）**
 > 本リポジトリは、壁裏やインク潜伏中の敵が見えない「正直な一人称視点（部分観測3D空間）」でリアルタイム（60 Hz）に閉ループ動作する全脳型認知アーキテクチャ **`Universal Brain 3D (v2.1)`** と、その検証用にゼロから自作した180度点対称の3D領域塗り＆コア搬送対戦環境 **`InkBlitz 3D`** の研究実装です。
-> 1つの巨大ネットワークで全てを処理するのではなく、OSのように分離された7つの非同期プロセス（単一GPU専有1＋CPU6）の上で、**①海馬の空間地図記憶（EKF-SLAM）**、**②小脳の3D偏差射撃とSystem 1の高速反射（60/24 Hz）**、**③世界モデルによる3手先の反実仮想予測と大域ワークスペース（GNWT）の意識統合（10 Hz）**、**④自己モデルと因果統合情報量 $\Phi_G$ のリアルタイム計測**、**⑤運動系から安全隔離された内言と世代間の睡眠学習（S-1〜S-4）** を同時に協調動作させています。**Unity無しのPython単体でも、全7段階の自動検証スイート（`--mode verify_all`）と内蔵3Dアリーナ実験がそのまま完結します。**
+> 本プロジェクトは、HBPのような「神経細胞レベルの物理シミュレート」でも、日本の全脳アーキテクチャ（WBA）のような「生の脳解剖回路に忠実なボトムアップ再現」でも、Google DeepMindのような「個別認知モジュールや単一巨大方策の追求」でもなく、**WBA的な『多時間スケールの全脳機能分業』の枠組みの中に、DeepMind系を中心とする実績ある機械学習部品（`D3QN`・`RSSM`・`Slot Attention`・`PBT/PFSP` 等）を安全制約付きで組み込んだ「実用的な中間アプローチ」** を採っています。
+> OSのように分離された7つの非同期プロセス（単一GPU専有1＋CPU6）の上で、**①海馬の空間地図記憶（EKF-SLAM）**、**②小脳の3D偏差射撃とSystem 1の高速反射（60/24 Hz）**、**③世界モデルによる3手先の反実仮想予測と大域ワークスペース（GNWT）の意識統合（10 Hz）**、**④自己モデルと因果統合情報量 $\Phi_G$ のリアルタイム計測**、**⑤運動系から安全隔離された内言と世代間の睡眠学習（S-1〜S-4）** を同時に協調動作させています。**Unity無しのPython単体でも、全7段階の自動検証スイート（`--mode verify_all`）と内蔵3Dアリーナ実験がそのまま完結します。**
 
 ---
 
@@ -23,6 +24,17 @@ Rather than claiming ion-channel biological realism or asserting phenomenal cons
 1. **Whole-System Integration First**: Run all fast and slow cognitive loops concurrently over a fault-tolerant, lock-free multi-process runtime ("a real-time cognitive microkernel") with explicit inter-region interfaces.
 2. **Honest 1st-Person Partial Observability**: No omniscient map or wall-penetrating coordinates are ever exposed to the agent; unobserved territory gradually decays back toward uncertainty (`0.0`), and stealth-submerged opponents vanish from vision.
 3. **Empirical Falsifiability**: Every cognitive claim—world-model future rollouts, global workspace handoffs, motor-isolated inner speech, and causal integration ($\Phi_G$)—is continuously audited by deterministic self-tests and live telemetry.
+
+### Research Positioning: A Pragmatic Middle Ground
+
+When building a "brain-inspired AI," existing research generally falls into three distinct paradigms—none of which alone satisfies real-time 60 Hz embodied control with modular cognitive transparency on a single workstation. **Universal Brain 3D (v2.1)** intentionally occupies an engineering middle ground:
+
+| Paradigm | Representative Lineage | Core Focus | How Universal Brain 3D (v2.1) Differs |
+| :--- | :--- | :--- | :--- |
+| **Biophysical Brain Simulation** | Human Brain Project / Blue Brain (Markram et al., 2015) | Ion-channel, compartment, and spiking microcircuit fidelity. | **Not cellular simulation**: We abstract away biophysical spiking to achieve deterministic 60 Hz 3D sensorimotor control on a single consumer GPU. |
+| **Anatomical Brain Reference Architecture** | Whole Brain Architecture / WBRA (Yamakawa, 2021) | Mapping software modules closely onto biological mesoscopic subcircuits. | **Looser, loop-first functionalism**: Rather than enforcing strict anatomical circuit isomorphism upfront, we prioritize closing the full 60 Hz sensorimotor–workspace–sleep loop first (treating selective WBRA motifs as a future refinement). |
+| **Task-Driven RL & Cognitive Primitives** | Google DeepMind lineage (`DQN`, `Dreamer`, `Slot Attention`, `FTW/PBT`, `AlphaStar`) | High-performing standalone cognitive components or monolithic end-to-end policies. | **Beyond isolated primitives**: Rather than stopping at an individual world model or monolithic RL policy, we orchestrate these proven primitives as asynchronous organs inside a multi-rate whole-brain microkernel. |
+| **Pragmatic Functionalist Middle Ground** | **Universal Brain 3D (v2.1)** *(This Project)* | **WBA-inspired macro-organization $\times$ DeepMind-lineage ML primitives** | Combines **multi-timescale whole-brain functional division** (60/24/10 Hz + offline sleep) with **battle-tested deep RL/ML building blocks** inside each region, bound together by explicit safety and epistemic invariants. |
 
 ---
 
@@ -242,27 +254,64 @@ Autonomous_PBT_Evolution_Loop/
 
 ---
 
-## 7. Transparent AI Co-Development Statement & References
+## 7. Algorithmic Provenance, AI Co-Development & References
+
+### Standing on Existing Deep RL, World-Model & Neuro-Cognitive Foundations
+While the **7-process lock-free cognitive microkernel (`Barrier 1`), multi-timescale arbitration, and safety invariants (`Survival Shield`, `STN-SNr` escape exemption, `Plan-A` inner-speech isolation)** are original to **Universal Brain 3D (v2.1)**, its internal modules do not reinvent the wheel. Instead, each functional region builds directly upon established algorithms from **Google DeepMind / Google Research**, modern representation learning, classical robotics, and computational neuroscience:
+
+| Brain Subsystem / Loop | Established Building Blocks & Lineage | Architectural Adaptation in Universal Brain 3D (v2.1) |
+| :--- | :--- | :--- |
+| **System-1 Fast Reflex (`24 Hz`) & NREM Replay (`S-1`)** | **DQN** [1], **Double DQN** [2], **Dueling DQN** [3], **Prioritized Experience Replay (PER)** [4] *(DeepMind)*; **Tensor-Train (`TTLinear`)** [5] | `TensorTrainD3QNCandidateNet3D` evaluates 8 spatially grounded 6-DoF tactical maneuvers + continuous dive/speed modulation under 60 Hz basal-ganglia gating. |
+| **System-2 World Model (`10–12 Hz`) & REM Dreaming (`S-2`)** | **Categorical RSSM** with 1% unimix discrete latents (*DreamerV2 / DreamerV3* [6, 7], *Google Research / DeepMind*) | Extended into a **3-head (`reward`, pessimistic `survival`, `advantage`) 8-branch parallel simulator (`horizon=3`)** with counterfactual exposure de-confounding and live `UBWM` visual verification. |
+| **Object-Centric Vision & Top-Down Attention** | **Slot Attention** [8] *(Google Research)*; **Predictive Coding & Free-Energy** [17, 18] | Asymmetric 4-slot binding (`Slot 0` floor/turf vs. `Slots 1–3` foreground entities) modulated top-down (`t-1 -> t`) by Global Workspace precision spotlights (`topdown_gain_16`). |
+| **Prefrontal Episodic Strategy** | **Causal Transformer** [9] *(Google Brain / Research)* | `StrategicTransformer3D` attends over rolling workspace/self/compass history + metacognitive `self_surprise` residuals to steer macro tactical modes and spatial lookahead. |
+| **Proto-Symbols & Grounded Inner Speech (`Plan-A`)** | **VQ-VAE / Residual VQ (`RVQ`)** [10, 11], **InfoNCE / MIL-NCE** [12, 13] *(DeepMind / Google)*; **Inner Speech** [28] | Quantizes 128D workspace states into RVQ symbols and aligns foreground visual slots against background hard negatives while enforcing **`max|Q_on - Q_off| == 0.0` motor isolation**. |
+| **Competitive League & Teacher Bootstrap** | **Population-Based Training (PBT)** in 3D arenas (*FTW* [14, 15]) & **PFSP** (*AlphaStar* [16]) *(DeepMind)*; **DAgger** [19] | Single-GPU `PopGPUServer` (`Barrier 1`) running 180-deg rotationally symmetric matches, interleaved with **4-phase offline sleep (`S-1..S-4`)** [29, 30] and automatic regression rollback. |
+| **Spatial Memory, Subcortical Gate, GNWT & $\Phi_G$** | **MEC Grid Cells & EKF-SLAM** [20, 21]; **BG `STN-SNr` Gate** [22, 23]; **GNWT & Synaptic Depression** [24–26]; **HOT/AST** [31, 32]; **Causal $\Phi_G$** [27] | Stationary-landmark-only SLAM with mid-episode respawn (`flags \|= 16`), active-escape-exempt `STN-SNr` brake, metastable 5-specialist workspace ignition, and live 15-bipartition causal $\Phi_G$. |
 
 ### AI Co-Development Disclosure
 In accordance with contemporary open-science transparency standards, the author (**Alpha496**) conceived the overall system architecture, neuro-cognitive hypotheses, safety invariants, domain mechanics, and experimental evaluation criteria, while utilizing large language model coding assistants (Google Gemini) as an implementation, refactoring, and differential-verification partner. All architectural invariants and empirical test suites (`verify_all`, `verify_world_model`, `verify_pbt`, and the 23-check Unity mechanics suite) were deterministically executed and validated locally.
 
 ### References
-1. Baars, B. J. (1988). *A Cognitive Theory of Consciousness*. Cambridge University Press.
-2. Dehaene, S., Changeux, J.-P., & Naccache, L. (2011). Experimental and theoretical approaches to conscious processing. *Neuron*, 70(2), 200–227.
-3. Dehaene, S., Lau, H., & Kouider, S. (2017). What is consciousness, and could machines have it? *Science*, 358(6362), 486–492.
-4. Butlin, P., Long, R., Elmoznino, E., Bengio, Y., Birch, J., et al. (2023). Consciousness in Artificial Intelligence: Insights from the Science of Consciousness. *arXiv preprint arXiv:2308.08708*.
-5. Oizumi, M., Tsuchiya, N., & Amari, S. (2016). Unified framework for information integration based on information geometry. *Proceedings of the National Academy of Sciences (PNAS)*, 113(51), 14817–14822.
-6. Rao, R. P. N., & Ballard, D. H. (1999). Predictive coding in the visual cortex: a functional interpretation of some extra-classical receptive-field effects. *Nature Neuroscience*, 2(1), 79–87.
-7. Friston, K. (2010). The free-energy principle: a unified brain theory? *Nature Reviews Neuroscience*, 11(2), 127–138.
-8. Graziano, M. S. A. (2013). *Consciousness and the Social Brain*. Oxford University Press.
-9. Lau, H., & Rosenthal, D. (2011). Empirical support for higher-order theories of conscious awareness. *Trends in Cognitive Sciences*, 15(8), 365–373.
-10. Hafner, D., Pasukonis, J., Ba, J., & Lillicrap, T. (2023). Mastering Diverse Domains through World Models. *arXiv preprint arXiv:2301.04104*.
-11. Locatello, F., Weissenborn, D., Unterthiner, T., Mahendran, A., Heigold, G., Uszkoreit, J., Dosovitskiy, A., & Kipf, T. (2020). Object-Centric Learning with Slot Attention. *Advances in Neural Information Processing Systems (NeurIPS)*, 33, 11525–11538.
-12. Frank, M. J. (2006). Hold your horses: Impulsivity, deep brain stimulation, and medication in parkinsonism. *Neural Networks*, 19(8), 1120–1136.
-13. Cisek, P., Puskas, G. A., & El-Murr, S. (2009). Decisions in changing conditions: The urgency-gating model. *Journal of Neuroscience*, 29(37), 11560–11571.
-14. Yamakawa, H. (2021). The whole brain architecture approach: Accelerating the development of artificial general intelligence by referring to the brain. *Neural Networks*, 144, 478–495.
-15. Vygotsky, L. S. (1934/1986). *Thought and Language*. MIT Press.
+
+#### A. Deep Reinforcement Learning, World Models, Self-Play & Representation Learning
+1. Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A., Veness, J., et al. (2015). Human-level control through deep reinforcement learning. *Nature*, 518(7540), 529–533.
+2. van Hasselt, H., Guez, A., & Silver, D. (2016). Deep reinforcement learning with Double Q-learning. *Proceedings of the AAAI Conference on Artificial Intelligence*, 30(1), 2094–2100.
+3. Wang, Z., Schaul, T., Hessel, M., van Hasselt, H., Lanctot, M., & de Freitas, N. (2016). Dueling network architectures for deep reinforcement learning. *Proceedings of the 33rd International Conference on Machine Learning (ICML)*, PMLR 48, 1995–2003.
+4. Schaul, T., Quan, J., Antonoglou, I., & Silver, D. (2016). Prioritized experience replay. *International Conference on Learning Representations (ICLR)*.
+5. Novikov, A., Podoprikhin, D., Osokin, A., & Vetrov, D. P. (2015). Tensorizing neural networks. *Advances in Neural Information Processing Systems (NeurIPS)*, 28.
+6. Hafner, D., Lillicrap, T., Norouzi, M., & Ba, J. (2021). Mastering Atari with discrete world models. *International Conference on Learning Representations (ICLR)*.
+7. Hafner, D., Pasukonis, J., Ba, J., & Lillicrap, T. (2023). Mastering diverse domains through world models. *arXiv preprint arXiv:2301.04104*.
+8. Locatello, F., Weissenborn, D., Unterthiner, T., Mahendran, A., Heigold, G., Uszkoreit, J., Dosovitskiy, A., & Kipf, T. (2020). Object-centric learning with Slot Attention. *Advances in Neural Information Processing Systems (NeurIPS)*, 33, 11525–11538.
+9. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is all you need. *Advances in Neural Information Processing Systems (NeurIPS)*, 30.
+10. van den Oord, A., Vinyals, O., & Kavukcuoglu, K. (2017). Neural discrete representation learning. *Advances in Neural Information Processing Systems (NeurIPS)*, 30.
+11. Zeghidour, N., Luebs, A., Omran, A., Skoglund, J., & Tagliasacchi, M. (2021). SoundStream: An end-to-end neural audio codec. *IEEE/ACM Transactions on Audio, Speech, and Language Processing*, 30, 495–507.
+12. van den Oord, A., Li, Y., & Vinyals, O. (2018). Representation learning with Contrastive Predictive Coding. *arXiv preprint arXiv:1807.03748*.
+13. Miech, A., Alayrac, J.-B., Smaira, L., Laptev, I., Sivic, J., & Zisserman, A. (2020). End-to-end learning of visual representations from uncurated instructional videos. *Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)*, 9879–9889.
+14. Jaderberg, M., Dalibard, V., Osindero, S., Czarnecki, W. M., Donahue, J., et al. (2017). Population based training of neural networks. *arXiv preprint arXiv:1711.09846*.
+15. Jaderberg, M., Czarnecki, W. M., Dunning, I., Marris, L., Lever, G., et al. (2019). Human-level performance in 3D multiplayer games with population-based reinforcement learning. *Science*, 364(6443), 859–865.
+16. Vinyals, O., Babuschkin, I., Czarnecki, W. M., Mathieu, M., Dudzik, A., et al. (2019). Grandmaster level in StarCraft II using multi-agent reinforcement learning. *Nature*, 575(7782), 350–354.
+
+#### B. Cognitive Neuroscience, Brain Architecture, Robotics & Consciousness Science
+17. Rao, R. P. N., & Ballard, D. H. (1999). Predictive coding in the visual cortex: A functional interpretation of some extra-classical receptive-field effects. *Nature Neuroscience*, 2(1), 79–87.
+18. Friston, K. (2010). The free-energy principle: A unified brain theory? *Nature Reviews Neuroscience*, 11(2), 127–138.
+19. Ross, S., Gordon, G., & Bagnell, D. (2011). A reduction of imitation learning and structured prediction to no-regret online learning. *Proceedings of the 14th International Conference on Artificial Intelligence and Statistics (AISTATS)*, PMLR 15, 627–635.
+20. Hafting, T., Fyhn, M., Molden, S., Moser, M.-B., & Moser, E. I. (2005). Microstructure of a spatial map in the entorhinal cortex. *Nature*, 436(7052), 801–806.
+21. Durrant-Whyte, H., & Bailey, T. (2006). Simultaneous localization and mapping: Part I. *IEEE Robotics & Automation Magazine*, 13(2), 99–110.
+22. Frank, M. J. (2006). Hold your horses: Impulsivity, deep brain stimulation, and medication in parkinsonism. *Neural Networks*, 19(8), 1120–1136.
+23. Cisek, P., Puskas, G. A., & El-Murr, S. (2009). Decisions in changing conditions: The urgency-gating model. *Journal of Neuroscience*, 29(37), 11560–11571.
+24. Baars, B. J. (1988). *A Cognitive Theory of Consciousness*. Cambridge University Press.
+25. Dehaene, S., Changeux, J.-P., & Naccache, L. (2011). Experimental and theoretical approaches to conscious processing. *Neuron*, 70(2), 200–227; Dehaene, S., Lau, H., & Kouider, S. (2017). What is consciousness, and could machines have it? *Science*, 358(6362), 486–492.
+26. Tsodyks, M. V., & Markram, H. (1997). The neural code between neocortical pyramidal neurons depends on neurotransmitter release probability. *Proceedings of the National Academy of Sciences (PNAS)*, 94(2), 719–723.
+27. Oizumi, M., Tsuchiya, N., & Amari, S. (2016). Unified framework for information integration based on information geometry. *Proceedings of the National Academy of Sciences (PNAS)*, 113(51), 14817–14822.
+28. Vygotsky, L. S. (1934/1986). *Thought and Language*. MIT Press.
+29. Diekelmann, S., & Born, J. (2010). The memory function of sleep. *Nature Reviews Neuroscience*, 11(2), 114–126.
+30. Tononi, G., & Cirelli, C. (2014). Sleep and the price of plasticity: From synaptic and cellular homeostasis to memory consolidation and integration. *Neuron*, 81(1), 12–34.
+31. Lau, H., & Rosenthal, D. (2011). Empirical support for higher-order theories of conscious awareness. *Trends in Cognitive Sciences*, 15(8), 365–373.
+32. Graziano, M. S. A. (2013). *Consciousness and the Social Brain*. Oxford University Press.
+33. Markram, H., Muller, E., Ramaswamy, S., Reimann, M. W., Abdellah, M., et al. (2015). Reconstruction and simulation of neocortical microcircuitry. *Cell*, 163(2), 456–492.
+34. Yamakawa, H. (2021). The whole brain architecture approach: Accelerating the development of artificial general intelligence by referring to the brain. *Neural Networks*, 144, 478–495.
+35. Butlin, P., Long, R., Elmoznino, E., Bengio, Y., Birch, J., et al. (2023). Consciousness in artificial intelligence: Insights from the science of consciousness. *arXiv preprint arXiv:2308.08708*.
 
 ---
 
