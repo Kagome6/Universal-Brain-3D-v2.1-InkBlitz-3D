@@ -1,9 +1,9 @@
 cff-version: 1.2.0
 message: "If you use or reference this software architecture in your research, please cite it using the metadata below."
 type: software
-title: "Universal Brain 3D v2.2 & InkBlitz 3D: Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments"
-version: 2.2.0
-date-released: "2026-11-23"
+title: "Universal Brain 3D v2.3.0 & InkBlitz 3D: Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments"
+version: 2.3.0
+date-released: "2026-11-24"
 license: GPL-3.0-only
 authors:
   - name: "Alpha496"
@@ -20,12 +20,14 @@ keywords:
   - spatial-cognition
   - unity3d
 abstract: >-
-  A domain-agnostic, 60 Hz closed-loop functionalist whole-brain cognitive engine (v2.2)
-  paired with InkBlitz 3D, a symmetric 3D paint-territory and core-escort research simulator.
-  Integrates a 7-process lock-free SeqLock+CRC32 architecture (strict single-GPU Barrier 1),
-  4-layer allocentric hippocampal spatial memory with stationary-landmark EKF-SLAM,
-  cerebellar 3D ballistic lead-aim, basal ganglia STN-SNr timing inhibition, a 3-head
-  categorical RSSM world model with counterfactual de-confounding, metastable GNWT
-  broadcasting with top-down perceptual/hippocampal feedback, Oizumi-2016 lagged causal
-  integrated information (Phi_G), Plan-A motor-isolated inner speech, and 4-phase sleep
-  consolidation (S-1 to S-4).
+  A domain-agnostic, 60 Hz closed-loop functionalist whole-brain cognitive engine (v2.3.0)
+  paired with InkBlitz 3D, a two-stage 180-degree symmetric 3D paint-territory and core-escort
+  research simulator (Stage 1: Classic Citadel and Stage 2: Occluded Twin-Flank). Integrates a
+  7-process lock-free SeqLock+CRC32 architecture (strict single-GPU Barrier 1 + Zero-PyTorch
+  C++ /O2 spatial kernels), 4-layer allocentric hippocampal spatial memory with stationary-landmark
+  Kalman localization, cerebellar 3D ballistic lead-aim, basal ganglia STN-SNr timing inhibition
+  with 0 ms emergency escape bypass, a 3-head categorical RSSM world model with Dreamer-style
+  encoder ownership and counterfactual de-confounding, metastable GNWT broadcasting with
+  straight-through zero-gated top-down feedback, Oizumi-2016 lagged causal integrated information
+  (Phi_G), Plan-A motor-isolated inner speech, progressive Scaffold Annealing (autonomous neural
+  mode), and 4-phase sleep consolidation (S-1 to S-4).
