@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_neural_engine.py — Emergent RVQ Symbols, PER RingBuffer, Whole-Brain Continual
-Learner (`WholeBrainNeuralEngineWrapper`), RPC Client & `GPUInferenceProcess` (P2)
-======================================================================================
+Learner (`WholeBrainNeuralEngineWrapper`), RPC Client & `GPUInferenceProcess` (P2, v2.3.0)
+==========================================================================================
 Barrier 1 Guarantee:
   Zero top-level `torch` imports! `torch` and `brain3d_torch_models` are imported strictly
   inside `WholeBrainNeuralEngineWrapper.__init__` (Process #2 GPU boundary).
@@ -89,6 +89,46 @@ class OnlineProtoSymbolRVQ3D:
             self.sym_verb_prior[sym_id, verb] = float(
                 np.clip(0.98 * self.sym_verb_prior[sym_id, verb] + 0.03 * float(np.tanh(td_adv)), -0.5, 0.5)
             )
+            self.sym_verb_prior[sym_id] -= float(np.mean(self.sym_verb_prior[sym_id]))
+            np.clip(self.sym_verb_prior[sym_id], -0.45, 0.45, out=self.sym_verb_prior[sym_id])
+
+    def consolidate_batch_advantages(
+        self,
+        gwt_batch: np.ndarray,
+        self_batch: np.ndarray,
+        h_batch: np.ndarray,
+        cand_verbs_batch: np.ndarray,
+        cand_adv_batch: np.ndarray,
+        ema_rate: float = 0.015,
+        prior_lr: float = 0.040,
+    ) -> None:
+        """
+        v2.3 Offline/Minibatch Centered Multi-Verb RVQ Consolidation:
+        Updates coarse/residual codebooks gently and grounds each workspace proto-symbol `◆00..◆31`
+        into a zero-mean verb advantage prior across all 8 candidate verbs.
+        """
+        bsz = int(gwt_batch.shape[0])
+        er = float(np.clip(ema_rate, 0.0, 0.10))
+        plr = float(np.clip(prior_lr, 0.0, 0.15))
+        for i in range(bsz):
+            v = self._project_vec(gwt_batch[i], self_batch[i], h_batch[i])
+            d_c = np.sum((self.codebook_c - v[None, :]) ** 2, axis=-1)
+            sym_id = int(np.argmin(d_c))
+            res = v - self.codebook_c[sym_id]
+            d_m = np.sum((self.codebook_m - res[None, :]) ** 2, axis=-1)
+            mod_id = int(np.argmin(d_m))
+            if er > 0.0:
+                self.codebook_c[sym_id] = (1.0 - er) * self.codebook_c[sym_id] + er * v
+                self.codebook_m[mod_id] = (1.0 - er) * self.codebook_m[mod_id] + er * res
+            if plr > 0.0:
+                adv_row = np.asarray(cand_adv_batch[i], dtype=np.float32).ravel()
+                adv_c = adv_row - float(np.mean(adv_row))
+                vbs = np.asarray(cand_verbs_batch[i], dtype=np.int64).ravel()
+                for m in range(min(NUM_CANDIDATES, vbs.size, adv_c.size)):
+                    vb = int(vbs[m]) % NUM_MOTOR_VERBS
+                    self.sym_verb_prior[sym_id, vb] = (1.0 - 0.5 * plr) * self.sym_verb_prior[sym_id, vb] + plr * float(np.tanh(adv_c[m]))
+                self.sym_verb_prior[sym_id] -= float(np.mean(self.sym_verb_prior[sym_id]))
+                np.clip(self.sym_verb_prior[sym_id], -0.45, 0.45, out=self.sym_verb_prior[sym_id])
 
     def state_dict(self) -> Dict[str, Any]:
         return {
@@ -658,10 +698,10 @@ class WholeBrainNeuralEngineWrapper:
                 broca_bias = np.asarray(req["lang_cand_bias"], dtype=np.float32).reshape(NUM_CANDIDATES) * float(self.cfg.broca_prior_gain)
 
             q_fused = (
-                q_np[i]
-                + 0.30 * rew_np[i]
-                + 0.25 * (adv_np[i] - 0.5)
-                + 0.15 * proto_bias
+                0.78 * q_np[i]
+                + 0.62 * rew_np[i]
+                + 0.42 * (adv_np[i] - 0.5)
+                + 0.20 * proto_bias
                 + broca_bias
             ).astype(np.float32)
 
@@ -1152,7 +1192,7 @@ class WholeBrainNeuralEngineWrapper:
         dones_1step = self._t([1.0 if b.get("done_1step", b.get("done") or b.get("respawn")) else 0.0 for b in batch], torch.float32)
 
         haz_tgt = self._t([float(b.get("next_hazard", 0.0)) for b in batch], torch.float32)
-        surv_tgt = self._t([0.05 if b.get("respawn") else float(np.clip(1.0 - 0.85 * float(b.get("next_hazard", 0.0)), 0.05, 0.99)) for b in batch], torch.float32)
+        surv_tgt = self._t([0.05 if b.get("respawn") else float(np.clip(1.0 - 0.42 * float(b.get("next_hazard", 0.0)), 0.25, 0.99)) for b in batch], torch.float32)
         adv_tgt = self._t([1.0 if float(b.get("obj_adv_delta", 0.0)) > 0.002 or float(b.get("reward_1step", b["reward"])) > 0.05 else 0.35 for b in batch], torch.float32)
 
         # Strictly separate 1-step next_state (`s_{t+1}` for visual predictive coding) vs N-step next_state (`s_{t+n}` for Double-DQN)
@@ -1213,12 +1253,15 @@ class WholeBrainNeuralEngineWrapper:
         ], dim=-1)
 
         strat_emb, mode_logits, focus_off_xz = self.models["strat_tf"](strat_seq_t, meta_err9=meta_err9_t)
+        # v2.3 Dreamer-style World-Model Encoder Ownership:
+        # `foveal_enc` & `slot_cortex` are owned cleanly by grounded world-model/perceptual losses (`loss_vis`, `loss_slot`, `loss_rssm`),
+        # eliminating the `cos = -0.329` `L_td x L_rssm` encoder tug-of-war while preserving full gradient flow into `gwt`, `strat_tf`, and `z_td`!
         gwt_base, alp_live, ign_live, _ = self.models["gwt"](
-            z_perc, slot_ctx64, mec, hd, comp, h_post.detach(), post_st.detach(), prop, haz_pred.detach(), strat_emb,
+            z_perc.detach(), slot_ctx64.detach(), mec, hd, comp, h_post.detach(), post_st.detach(), prop, haz_pred.detach(), strat_emb,
             prev_gwt_t, meta_salience=prev_ssurp_t, hab_trace=prev_hab_t, novelty_5=nov5_tr,
         )
         delta_gwt, topdown_gain_16 = self.models["topo_adapter"].compute_topdown_spotlight(
-            gwt_base, slot_aux["feat16"], slots, s_coords
+            gwt_base, slot_aux["feat16"].detach(), slots.detach(), s_coords.detach()
         )
         gwt_live = gwt_base + delta_gwt
         z_td = (0.08 + 0.24 * ign_live).unsqueeze(-1) * self.models["gwt"].topdown_z(gwt_live)
@@ -1227,10 +1270,21 @@ class WholeBrainNeuralEngineWrapper:
             gwt_live.detach(), prop, prev_self_t,
             gwt_alpha=alp_live.detach(), prev_act=prev_act_t, prev_alpha=prev_alpha_t,
         )
-        z_eff = torch.tanh(z_perc + 0.70 * z_td)
+        z_eff = torch.tanh(z_perc.detach() + 0.70 * z_td)
+
+        # v2.3 Anti-Shortcut Modality Masking (20% sample-wise on direct mec/comp into D3QN trunk during training):
+        # Prevents instantaneous compass/grid shortcuts from starving GWT broadcast (`L8`), Strategic TF (`L9`),
+        # Top-Down `z_td` (`L3`), and RSSM recurrent state (`L6`) while keeping 100% full inputs at inference!
+        if bsz >= 4:
+            keep_m = (torch.rand((bsz, 1), device=z.device) >= 0.22).to(z.dtype)
+            d3qn_mec = mec * keep_m
+            d3qn_comp = comp * keep_m
+        else:
+            d3qn_mec = mec
+            d3qn_comp = comp
 
         # 1. Double-DQN N-Step TD Loss (with PER Importance Sampling weights) & Speed Modulation Head
-        q_all, spd_all = self.models["d3qn"](z_eff, gwt_live, h_post.detach(), mec, hd, prop, comp, c_feats)
+        q_all, spd_all = self.models["d3qn"](z_eff, gwt_live, h_post.detach(), d3qn_mec, hd, prop, d3qn_comp, c_feats)
         q_chosen = q_all.gather(1, chosen_idx.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
@@ -1439,11 +1493,26 @@ class WholeBrainNeuralEngineWrapper:
             & (c_feats[:, CAND_IDX_IDLE_OBSERVE, CFEAT_HAZARD] >= SHIELD_HAZARD_CF_MASK)
         )
         if exposed_mask.any():
-            cf_surv_m7 = p_surv[exposed_mask, CAND_IDX_IDLE_OBSERVE].clamp(1e-4, 1.0 - 1e-4)
+            # Detach factual posterior/visual latents so counterfactual M7 regularization updates ONLY
+            # action-conditioned imagination & candidate-advantage heads (zero encoder gradient conflict!)
+            _, p_surv_cf, _ = self.models["rssm"].imagine_candidates(
+                h_post[exposed_mask].detach(), post_st[exposed_mask].detach(), c_feats[exposed_mask], horizon=3
+            )
+            cf_surv_m7 = p_surv_cf[:, CAND_IDX_IDLE_OBSERVE].clamp(1e-4, 1.0 - 1e-4)
             cf_tgt = torch.full_like(cf_surv_m7, 0.12)
+            q_cf_exp, _ = self.models["d3qn"](
+                z_eff[exposed_mask].detach(),
+                gwt_live[exposed_mask].detach(),
+                h_post[exposed_mask].detach(),
+                mec[exposed_mask],
+                hd[exposed_mask],
+                prop[exposed_mask],
+                comp[exposed_mask],
+                c_feats[exposed_mask],
+            )
             cf_loss = (
                 0.45 * F.binary_cross_entropy(cf_surv_m7, cf_tgt)
-                + 0.25 * F.relu(q_all[exposed_mask, CAND_IDX_IDLE_OBSERVE] - q_chosen[exposed_mask].detach() + 0.6).mean()
+                + 0.25 * F.relu(q_cf_exp[:, CAND_IDX_IDLE_OBSERVE] - q_chosen[exposed_mask].detach() + 0.6).mean()
             )
 
         # 3. Depth Auto-Encoding, Amygdala Hazard, Predictive Visual Field & Spotlight, Strategic & Self Losses
@@ -1484,8 +1553,12 @@ class WholeBrainNeuralEngineWrapper:
             (emp_cover.unsqueeze(1) * (float(NUM_OBJECT_SLOTS) * w_cover).clamp(0.0, 1.25)).clamp(0.0, 1.0),
         ], dim=-1)
 
-        pred_nvis8, pred_nslots = self.models["slot_cortex"].predict_next_visual_field(
-            slots.detach(), slot_aux["pixel_stats"].detach(), s_coords.detach(), chosen_cf, rssm_h=h_post.detach()
+        slots_vis_in = 0.25 * slots + 0.75 * slots.detach()
+        pred_nvis8, _ = self.models["slot_cortex"].predict_next_visual_field(
+            slots_vis_in, slot_aux["pixel_stats"].detach(), s_coords.detach(), chosen_cf, rssm_h=h_post.detach()
+        )
+        pred_nslots = self.models["slot_cortex"].predict_next_slots(
+            slots.detach(), chosen_cf, rssm_h=h_post.detach()
         )
         fg_pix_mask = (nvis8_1[:, :, :, 3:4] > 0.22) | (nvis8_1[:, :, :, 4:6].abs().sum(dim=-1, keepdim=True) > 0.30) | (nvis8_1[:, :, :, 7:8] > 0.20)
         pix_w = torch.where(fg_pix_mask, torch.full_like(nvis8_1, 3.0), torch.ones_like(nvis8_1))
@@ -1533,6 +1606,13 @@ class WholeBrainNeuralEngineWrapper:
         mode_tgt_probs = F.softmax(mode_q / 0.45, dim=-1)
         mode_log_probs = F.log_softmax(mode_logits, dim=-1)
         mode_ent = -(torch.exp(mode_log_probs) * mode_log_probs).sum(dim=-1).mean()
+        sp4_live = F.gelu(self.models["gwt"].s4_strat(strat_emb))
+        ws_sp4_logp = F.log_softmax(self.models["gwt"].ws_mode_head(sp4_live), dim=-1)
+        ws_gwt_logp = F.log_softmax(self.models["gwt"].ws_mode_head(gwt_live), dim=-1)
+        loss_ws_strat = (
+            -0.22 * (mode_tgt_probs * ws_sp4_logp).sum(dim=-1).mean()
+            - 0.18 * (mode_tgt_probs * ws_gwt_logp).sum(dim=-1).mean()
+        )
         focus_tgt = torch.where(
             comp[:, MC_THR_VALID : MC_THR_VALID + 1] > 0.5,
             4.0 * comp[:, MC_THR_DX : MC_THR_DZ + 1],
@@ -1542,7 +1622,12 @@ class WholeBrainNeuralEngineWrapper:
                 3.5 * comp[:, MC_FRONT_DX : MC_FRONT_DZ + 1],
             ),
         )
-        loss_strat = -(mode_tgt_probs * mode_log_probs).sum(dim=-1).mean() - 0.02 * mode_ent + 0.15 * F.smooth_l1_loss(focus_off_xz, focus_tgt)
+        loss_strat = (
+            -(mode_tgt_probs * mode_log_probs).sum(dim=-1).mean()
+            - 0.02 * mode_ent
+            + 0.15 * F.smooth_l1_loss(focus_off_xz, focus_tgt)
+            + loss_ws_strat
+        )
 
         self_tgt8 = torch.clamp(torch.stack([
             2.0 * surv_tgt - 1.0,
@@ -1637,11 +1722,25 @@ class WholeBrainNeuralEngineWrapper:
             for p, pt in zip(self.models["d3qn"].parameters(), self.models["d3qn_target"].parameters()):
                 pt.data.mul_(0.985).add_(p.data * 0.015)
 
-        # Refresh sampled priorities in O(1)
+        # Refresh sampled priorities in O(1) & consolidate centered multi-verb RVQ symbol priors (`v2.3`)
         with torch.no_grad():
             td_errs = torch.abs(q_chosen - td_target).cpu().numpy()
             for k_pos, buf_idx in enumerate(idxs):
                 self.replay.update_priority(int(buf_idx), float(max(0.10, td_errs[k_pos] + 0.15)))
+
+            q_adv_t = q_all.detach() - q_all.detach().mean(dim=-1, keepdim=True)
+            td_delta_col = (0.50 * (td_target.detach() - q_chosen.detach())).clamp(-2.5, 2.5).unsqueeze(1)
+            q_adv_t = q_adv_t.scatter_add(1, chosen_idx.unsqueeze(1), td_delta_col)
+            c_verbs_np = np.argmax(c_feats[:, :, CFEAT_VERB_ONEHOT_BASE : CFEAT_VERB_ONEHOT_BASE + NUM_MOTOR_VERBS].detach().cpu().numpy(), axis=-1)
+            self.rvq.consolidate_batch_advantages(
+                gwt_live.detach().cpu().numpy(),
+                self_cur.detach().cpu().numpy(),
+                h_post.detach().cpu().numpy(),
+                c_verbs_np,
+                q_adv_t.cpu().numpy(),
+                ema_rate=0.012,
+                prior_lr=0.035,
+            )
 
         self.train_steps_done += 1
         return float(total_loss.item())

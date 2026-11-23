@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-strategy_knowledge_engine.py — Multi-Regime Strategic Knowledge DB, Hybrid Search & Ollama Gemma 4 Pipeline
-===========================================================================================================
+strategy_knowledge_engine.py — Multi-Regime Strategic Knowledge DB, Hybrid Search & Ollama Gemma 4 Pipeline (v2.3.0)
+====================================================================================================================
 Strictly Zero-PyTorch (`Barrier 1` compliant) strategic memory, post-match Turning-Point differential
 analyst, and 4-boundary closed-loop strategic controller for the 3D Functionalist Brain (`InkBlitz 3D`).
 

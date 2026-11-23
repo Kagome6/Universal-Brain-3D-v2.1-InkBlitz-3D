@@ -1,11 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-brain3d_torch_models.py — Top-Level PyTorch Whole-Brain Neural Architecture Suite (13 Models)
-=============================================================================================
+brain3d_torch_models.py — Top-Level PyTorch Whole-Brain Neural Architecture Suite (13 Models, v2.3.0)
+=====================================================================================================
 Barrier 1 Isolation Rule:
   This module imports `torch` at top level so all 12 `nn.Module` classes live cleanly at
   module scope (zero nested-function indentation) with full IDE/type-checker & pickle support.
   It MUST ONLY be imported inside `GPUInferenceProcess` (`WholeBrainNeuralEngineWrapper.__init__`).
+
+v2.3 Short-Term Upgrade Notes:
+  - Adds `apply_zero_gate` (Shadow-Tangent Straight-Through Zero-Gate Awakening) breaking the
+    bilinear `tanh(0) * branch` saddle deadlock while preserving `0.000000` forward perturbation
+    on legacy `v2.2` checkpoints and zero overhead under `torch.no_grad()`.
+  - Adds training-only `ws_mode_head` on `ActiveGWTWorkspace3D` (`strict=False` compatible) so
+    `s4_strat(strat_emb)` and workspace salience learn macro tactical mode broadcasting.
 
 License: GNU General Public License v3.0 (GPL-3.0)
 """
@@ -21,6 +28,29 @@ import torch.nn.functional as F
 
 from task_profiles_3d import *
 from brain3d_config_ipc import *
+
+
+def apply_zero_gate(
+    gate: nn.Parameter,
+    branch: torch.Tensor,
+    training: bool = False,
+    warm_gain: float = 0.20,
+) -> torch.Tensor:
+    """
+    Zero-Initialized Residual Gate with Shadow-Tangent Straight-Through Awakening (`v2.3`):
+      - Exact forward value: `tanh(gate) * branch` (`0.000000` perturbation at `gate == 0`
+        and 100% bit-identical evaluation on `v2.2` checkpoints).
+      - During `training and torch.is_grad_enabled()`, adds zero-valued straight-through term
+        `warm_eff * (branch - branch.detach())` with `warm_eff = warm_gain * (1 - |tanh(gate)|)`
+        so `branch` weights align with `-dL/dy` even at `gate == 0`, allowing `<dL/dy, branch> < 0`
+        to open `gate` naturally if and only if `branch` genuinely reduces task loss.
+    """
+    g = torch.tanh(gate)
+    out = g * branch
+    if training and torch.is_grad_enabled() and warm_gain > 0.0:
+        warm_eff = float(warm_gain) * (1.0 - g.detach().abs())
+        out = out + warm_eff * (branch - branch.detach())
+    return out
 
 
 class TTLinear(nn.Module):
@@ -146,7 +176,7 @@ class TensorTrainD3QNCandidateNet3D(nn.Module):
 
 class CategoricalRSSM3D(nn.Module):
     """
-    Upgraded 3-Head Multi-Step Causal Categorical World Model (`CategoricalRSSM3D` v2.1):
+    Upgraded 3-Head Multi-Step Causal Categorical World Model (`CategoricalRSSM3D` v2.2):
       - 1% Unimix categorical latents (`8x8 = 64D`) + recurrent `GRUCell` dynamics
       - Multi-step open-loop GRU imagination (`horizon=3`) across all `M=8` candidates:
           1. `pred_rew (B, 8)`  : Discounted multi-step tactical reward (`0.70/0.20/0.10`)
@@ -244,7 +274,7 @@ class CategoricalRSSM3D(nn.Module):
 
 class ObjectSlotPredictiveCortex3D(nn.Module):
     """
-    Asymmetric 4-Slot Object-Centric Predictive Visual Cortex (`ObjectSlotPredictiveCortex3D` v2.1):
+    Asymmetric 4-Slot Object-Centric Predictive Visual Cortex (`ObjectSlotPredictiveCortex3D` v2.2):
       - Slot 0 captures wide background / floor surface field; Slots 1..3 bind to salient foreground objects
       - Closes the recurrent Predictive Coding & Top-Down Precision Spotlight loop (`pred_err_16` + `topdown_gain_16`)
       - Injects zero-gated foreground residual `delta_z = tanh(z_res_gate) * out_z_proj(fg_pool)` into `latent_z`
@@ -366,7 +396,7 @@ class ObjectSlotPredictiveCortex3D(nn.Module):
         td_prior_raw = None
         if td_context is not None:
             td_prior_raw = self.td_slot_prior(td_context).view(bsz, NUM_OBJECT_SLOTS, OBJECT_SLOT_DIM)
-            slots = slots + 0.45 * torch.tanh(self.td_slot_gate) * torch.tanh(td_prior_raw)
+            slots = slots + 0.45 * apply_zero_gate(self.td_slot_gate, torch.tanh(td_prior_raw), self.training, 0.22)
         last_attn = None
         for _ in range(2):
             attn_logits = torch.einsum("bsd,bnd->bsn", slots, feat) / math.sqrt(float(OBJECT_SLOT_DIM)) + prior_bias
@@ -385,7 +415,7 @@ class ObjectSlotPredictiveCortex3D(nn.Module):
         pixel_stats = torch.einsum("bsn,bnd->bsd", last_attn, vis8_8x8)  # (B, 4, 8)
         fg_slots = slots[:, 1:]
         fg_pool = torch.cat([fg_slots.mean(dim=1), fg_slots.amax(dim=1), slots[:, 0]], dim=-1)
-        delta_z = torch.tanh(self.z_res_gate) * self.out_z_proj(fg_pool)
+        delta_z = apply_zero_gate(self.z_res_gate, self.out_z_proj(fg_pool), self.training, 0.22)
 
         if return_aux:
             return slots, coords, valence, {
@@ -405,7 +435,7 @@ class ObjectSlotPredictiveCortex3D(nn.Module):
         flat = slots.reshape(bsz, -1)
         pred_flat = self.next_slot_pred(torch.cat([flat, cand_feat32], dim=-1))
         if rssm_h is not None:
-            pred_flat = pred_flat + torch.tanh(self.rssm_slot_gate) * self.rssm_slot_ctx(rssm_h)
+            pred_flat = pred_flat + apply_zero_gate(self.rssm_slot_gate, self.rssm_slot_ctx(rssm_h), self.training, 0.20)
         return (slots + 0.50 * pred_flat.reshape(bsz, NUM_OBJECT_SLOTS, OBJECT_SLOT_DIM))
 
     def predict_next_visual_field(self, slots, pixel_stats, coords, cand_feat32, rssm_h=None):
@@ -506,18 +536,18 @@ class SpatialTopologicalGWTAdapter3D(nn.Module):
         q = self.q_proj(self.gwt_norm(gwt_vec)).unsqueeze(1)  # (B, 1, 64)
         attn_w = F.softmax((q @ kv_tok.transpose(1, 2)) * 0.125, dim=-1).squeeze(1)  # (B, 20)
         ctx_64 = (attn_w.unsqueeze(-1) * self.v_proj(kv_tok)).sum(dim=1)
-        delta_gwt = torch.tanh(self.gwt_res_gate) * self.out_gwt_proj(ctx_64)
+        delta_gwt = apply_zero_gate(self.gwt_res_gate, self.out_gwt_proj(ctx_64), self.training, 0.22)
 
-        spot_q = self.spot_q_proj(gwt_vec + delta_gwt).view(bsz, OBJECT_SLOT_DIM, 1, 1)
+        spot_q = self.spot_q_proj((gwt_vec + delta_gwt).detach()).view(bsz, OBJECT_SLOT_DIM, 1, 1)
         feat_dot = (spot_q * feat16_bchw).sum(dim=1, keepdim=True) / math.sqrt(float(OBJECT_SLOT_DIM))
-        attn_16 = F.interpolate(attn_w[:, :16].view(bsz, 1, 4, 4), size=(FOVEA_H, FOVEA_W), mode="bilinear", align_corners=False)
+        attn_16 = F.interpolate(attn_w[:, :16].detach().view(bsz, 1, 4, 4), size=(FOVEA_H, FOVEA_W), mode="bilinear", align_corners=False)
         raw_spot = self.spot_conv(torch.cat([feat_dot, attn_16], dim=1))
-        topdown_gain_16 = 1.0 + 0.50 * torch.tanh(self.spot_gate) * torch.tanh(raw_spot)
+        topdown_gain_16 = 1.0 + 0.50 * apply_zero_gate(self.spot_gate, torch.tanh(raw_spot), self.training, 0.22)
         return delta_gwt, topdown_gain_16
 
 class SlotConceptLanguageGrounder3D(nn.Module):
     """
-    Contrastive InfoNCE + Foreground-Slot MIL-InfoNCE Multimodal Concept Grounder (`v2.1`):
+    Contrastive InfoNCE + Foreground-Slot MIL-InfoNCE Multimodal Concept Grounder (`v2.2`):
       - Aligns global `slot_ctx64` AND translation-invariant foreground visual slots (`Slots 1..3`)
         with Wernicke language & RVQ Proto-Symbols while repelling background `Slot 0` (hard negative).
     """
@@ -643,7 +673,7 @@ class SlotConceptLanguageGrounder3D(nn.Module):
 
 class ActiveGWTWorkspace3D(nn.Module):
     """
-    5-Specialist Global Workspace with Nonlinear All-or-None Ignition Phase-Transition Gate (`v2.1`):
+    5-Specialist Global Workspace with Nonlinear All-or-None Ignition Phase-Transition Gate (`v2.2`):
       - Sub-threshold diffuse competition preserves reverberant `prev_gwt` working memory.
       - Supra-threshold specialist coalition triggers steep sigmoid global ignition (`ignition`),
         writing strongly to `gwt_w` and scaling top-down cortical modulation `z_td`.
@@ -660,6 +690,7 @@ class ActiveGWTWorkspace3D(nn.Module):
         self.salience_scorer = nn.Sequential(nn.Linear(GWT_DIM, 32), nn.Tanh(), nn.Linear(32, 1))
         self.broadcast_norm = nn.LayerNorm(GWT_DIM)
         self.topdown_z = nn.Sequential(nn.Linear(GWT_DIM, LATENT_Z_DIM), nn.Tanh())
+        self.ws_mode_head = nn.Linear(GWT_DIM, 5)
         self.ign_thresh_logit = nn.Parameter(torch.zeros(1))
         self.ign_slope_raw = nn.Parameter(torch.zeros(1))
 
@@ -739,7 +770,7 @@ class ActiveGWTWorkspace3D(nn.Module):
 
 class CoarseSelfModel3D(nn.Module):
     """
-    HOT / Attention-Schema Metacognitive Self-Model (`CoarseSelfModel3D` v2.1):
+    HOT / Attention-Schema Metacognitive Self-Model (`CoarseSelfModel3D` v2.2):
       - Encodes current internal self-state from `[gwt_w, proprio]` + Attention Schema `gwt_alpha[5]`
       - Predicts expected self-state from `prev_self` + Efference Copy `[prev_act(32), prev_alpha(5)]`
       - Outputs `(cur, surprise, err_vec, pred)` to close the metacognitive self-prediction error loop!
@@ -776,7 +807,7 @@ class CoarseSelfModel3D(nn.Module):
             prev_alpha = torch.full((bsz, 5), 0.2, device=dev, dtype=dt)
 
         raw_s = self.enc(torch.cat([gwt_w, proprio], dim=-1))
-        cur = torch.tanh(raw_s + torch.tanh(self.schema_gate) * self.attn_schema_proj(gwt_alpha))
+        cur = torch.tanh(raw_s + apply_zero_gate(self.schema_gate, self.attn_schema_proj(gwt_alpha), self.training, 0.20))
         eff_in = torch.cat([prev_act, prev_alpha], dim=-1)
         pred = torch.tanh(self.pred_next(prev_self) + self.efference_proj(eff_in))
         err_vec = cur.detach() - pred
@@ -785,7 +816,7 @@ class CoarseSelfModel3D(nn.Module):
 
 class StrategicTransformer3D(nn.Module):
     """
-    Prefrontal Episodic Context Transformer (`StrategicTransformer3D` v2.1):
+    Prefrontal Episodic Context Transformer (`StrategicTransformer3D` v2.2):
     Attends over recent `(gwt_workspace, self_state, mem_compass)` snapshots + causal metacognitive
     `self_surprise` error residual (`meta_err9`) and outputs:
       - `strat_embed (B, 64)` for GWT Specialist #4
@@ -832,7 +863,7 @@ class StrategicTransformer3D(nn.Module):
             )
         out = self.transformer(h, mask=c_mask)[:, -1, :]  # (B, 64)
         if meta_err9 is not None:
-            out = out + torch.tanh(self.meta_err_gate) * F.gelu(self.meta_err_proj(meta_err9))
+            out = out + apply_zero_gate(self.meta_err_gate, F.gelu(self.meta_err_proj(meta_err9)), self.training, 0.22)
         mode_logits = self.goal_mode_head(out)
         focus_off = self.focus_offset_head(out) * 5.0  # [-5m..+5m] lookahead offset
         return out, mode_logits, focus_off
