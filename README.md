@@ -6,7 +6,7 @@
 [![License: GPL v3](https://img.shields.io/badge/Python_Brain-GPLv3-blue.svg)](LICENSE)
 [![License: MIT](https://img.shields.io/badge/Unity_Arena-MIT-green.svg)](LICENSE_UNITY_MIT.txt)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](requirements.txt)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24417716.svg)](https://doi.org/10.5281/zenodo.24417716)
+[![DOI][(https://zenodo.org/badge/DOI/10.5281/zenodo.24417716.svg)](https://doi.org/10.5281/zenodo.24417716)](https://doi.org/10.5281/zenodo.24470540)
 
 > **日本語要約（Japanese Summary）**
 > 本リポジトリは、壁裏やインク潜伏中の敵が見えない「正直な一人称視点（部分観測3D空間）」でリアルタイム（60 Hz）に閉ループ動作する全脳型認知アーキテクチャ **`Universal Brain 3D (v2.3)`** と、その検証用にゼロから自作した180度点対称の3D領域塗り＆コア搬送対戦環境 **`InkBlitz 3D`** の研究実装です。
