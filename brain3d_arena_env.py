@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-brain3d_arena_env.py — Built-in 60Hz 3D Tactical Arena Sandbox & WorldBridgeProcess (P1)
-========================================================================================
+brain3d_arena_env.py — Built-in 60Hz 3D Tactical Arena Sandbox & WorldBridgeProcess (P1, v2.3.0)
+================================================================================================
 Barrier 1 Guarantee: Strictly Zero-PyTorch (`"torch" not in sys.modules`).
 License: GNU General Public License v3.0 (GPL-3.0)
 """
@@ -77,6 +77,7 @@ class StandaloneTactical3DArena:
         self.projectiles: List[Dict[str, Any]] = []
         self.objective_pos = np.zeros(3, dtype=np.float32)
         self.objective_carrier_enemy_idx = -1
+        self.dropped_idle_ticks = 0
         self.attack_pedestal_pos = np.array([0.0, 1.2, 12.5], dtype=np.float32)
         self.defend_pedestal_pos = np.array([0.0, 1.2, -12.5], dtype=np.float32)
         self.reset_episode()
@@ -134,10 +135,17 @@ class StandaloneTactical3DArena:
         self.last_respawn_flag = False
 
         self.surface_grid.fill(0.0)
-        self.self_pos = np.array(
-            [float(self.rng.uniform(-2.2, 2.2)), 1.5, float(self.wmin[2] + 3.5)],
-            dtype=np.float32,
-        )
+        stage_id = int(getattr(self.cfg, "default_stage_id", 1))
+        if stage_id == 2:
+            self.self_pos = np.array(
+                [float(self.rng.uniform(-8.2, -5.8)), 1.5, float(self.wmin[2] + 2.8)],
+                dtype=np.float32,
+            )
+        else:
+            self.self_pos = np.array(
+                [float(self.rng.uniform(-2.2, 2.2)), 1.5, float(self.wmin[2] + 3.5)],
+                dtype=np.float32,
+            )
         self.self_vel = np.zeros(3, dtype=np.float32)
         self.aim_yp = np.array([0.0, -0.12], dtype=np.float32)
         self.gaze_ypd = np.array([0.0, -0.12, 6.0], dtype=np.float32)
@@ -147,30 +155,57 @@ class StandaloneTactical3DArena:
         self.carrying_objective = False
         self.objective_progress = 0.50
         self.objective_carrier_enemy_idx = -1
+        self.dropped_idle_ticks = 0
         self.projectiles.clear()
 
-        self.attack_pedestal_pos = np.array([0.0, 1.2, float(self.wmax[2] - 3.0)], dtype=np.float32)
-        self.defend_pedestal_pos = np.array([0.0, 1.2, float(self.wmin[2] + 3.0)], dtype=np.float32)
+        if stage_id == 2:
+            self.attack_pedestal_pos = np.array([-6.8, 1.28, float(self.wmax[2] - 3.2)], dtype=np.float32)
+            self.defend_pedestal_pos = np.array([6.8, 1.28, float(self.wmin[2] + 3.2)], dtype=np.float32)
+        else:
+            self.attack_pedestal_pos = np.array([0.0, 1.2, float(self.wmax[2] - 3.0)], dtype=np.float32)
+            self.defend_pedestal_pos = np.array([0.0, 1.2, float(self.wmin[2] + 3.0)], dtype=np.float32)
         self.objective_pos = np.array([0.0, 1.1, 0.0], dtype=np.float32)
 
         # Spawn initial base ink pads
         self._paint_disc(float(self.self_pos[0]), float(self.self_pos[2]), 2.4, +1.0)
-        self._paint_disc(0.0, float(self.wmax[2] - 3.5), 2.4, -1.0)
+        opp_base_x = 7.0 if stage_id == 2 else 0.0
+        opp_base_z = float(self.wmax[2] - (2.8 if stage_id == 2 else 3.5))
+        self._paint_disc(opp_base_x, opp_base_z, 2.4, -1.0)
 
-        # Symmetric tactical cover blocks + resource packs
-        self.cover_blocks = [
-            {"id": 101, "pos": np.array([-4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
-            {"id": 102, "pos": np.array([4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
-            {"id": 103, "pos": np.array([-4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
-            {"id": 104, "pos": np.array([4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
-            {"id": 105, "pos": np.array([-7.5, 1.6, 0.0], dtype=np.float32), "radius": 1.40, "tag": SemanticTag.NEUTRAL_PROP},
-            {"id": 106, "pos": np.array([7.5, 1.6, 0.0], dtype=np.float32), "radius": 1.40, "tag": SemanticTag.NEUTRAL_PROP},
-        ]
+        # Symmetric tactical cover blocks + resource packs (Stage 2 adds central LOS-occluding S-baffle chicane)
+        if stage_id == 2:
+            self.cover_blocks = [
+                {"id": 101, "pos": np.array([-1.2, 1.3, -3.85], dtype=np.float32), "radius": 1.35, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 102, "pos": np.array([1.2, 1.3, 3.85], dtype=np.float32), "radius": 1.35, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 103, "pos": np.array([1.1, 1.3, -3.55], dtype=np.float32), "radius": 1.40, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 104, "pos": np.array([-1.1, 1.3, 3.55], dtype=np.float32), "radius": 1.40, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 105, "pos": np.array([3.3, 1.3, -3.25], dtype=np.float32), "radius": 1.30, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 106, "pos": np.array([-3.3, 1.3, 3.25], dtype=np.float32), "radius": 1.30, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 107, "pos": np.array([-6.2, 1.3, -1.8], dtype=np.float32), "radius": 1.20, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 108, "pos": np.array([6.2, 1.3, 1.8], dtype=np.float32), "radius": 1.20, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 109, "pos": np.array([3.0, 1.3, -8.8], dtype=np.float32), "radius": 1.20, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 110, "pos": np.array([-3.0, 1.3, 8.8], dtype=np.float32), "radius": 1.20, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 111, "pos": np.array([-10.2, 1.6, 5.2], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.NEUTRAL_PROP},
+                {"id": 112, "pos": np.array([10.2, 1.6, -5.2], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.NEUTRAL_PROP},
+            ]
+        else:
+            self.cover_blocks = [
+                {"id": 101, "pos": np.array([-4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 102, "pos": np.array([4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 103, "pos": np.array([-4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 104, "pos": np.array([4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25, "tag": SemanticTag.COVER_OR_FRIENDLY_TURF},
+                {"id": 105, "pos": np.array([-7.5, 1.6, 0.0], dtype=np.float32), "radius": 1.40, "tag": SemanticTag.NEUTRAL_PROP},
+                {"id": 106, "pos": np.array([7.5, 1.6, 0.0], dtype=np.float32), "radius": 1.40, "tag": SemanticTag.NEUTRAL_PROP},
+            ]
 
         self.opponents = []
         for idx in range(2):
-            ox = -3.2 if idx == 0 else 3.2
-            oz = float(self.wmax[2] - 4.2)
+            if stage_id == 2:
+                ox = 5.4 if idx == 0 else 8.4
+                oz = float(self.wmax[2] - 3.2)
+            else:
+                ox = -3.2 if idx == 0 else 3.2
+                oz = float(self.wmax[2] - 4.2)
             self.opponents.append({
                 "id": 201 + idx,
                 "pos": np.array([ox, 1.5, oz], dtype=np.float32),
@@ -185,10 +220,17 @@ class StandaloneTactical3DArena:
         if self.carrying_objective:
             self.carrying_objective = False
             self.objective_pos = np.array([float(self.self_pos[0]), 1.1, float(self.self_pos[2])], dtype=np.float32)
-        self.self_pos = np.array(
-            [float(self.rng.uniform(-2.0, 2.0)), 1.5, float(self.wmin[2] + 3.2)],
-            dtype=np.float32,
-        )
+        stage_id = int(getattr(self.cfg, "default_stage_id", 1))
+        if stage_id == 2:
+            self.self_pos = np.array(
+                [float(self.rng.uniform(-8.2, -5.8)), 1.5, float(self.wmin[2] + 2.8)],
+                dtype=np.float32,
+            )
+        else:
+            self.self_pos = np.array(
+                [float(self.rng.uniform(-2.0, 2.0)), 1.5, float(self.wmin[2] + 3.2)],
+                dtype=np.float32,
+            )
         self.self_vel.fill(0.0)
         self.hp = 1.0
         self.resource_tank = 1.0
@@ -303,7 +345,7 @@ class StandaloneTactical3DArena:
                     "pos": self.self_pos.copy() + dir_v * 0.75,
                     "vel": dir_v * proj_spd,
                     "team": 1,
-                    "ttl": 26,
+                    "ttl": 32,
                     "splash": 1.65 if motor_verb == VERB_RELEASE_PLACE else 2.35,
                 })
                 flipped = self._paint_disc(
@@ -346,7 +388,10 @@ class StandaloneTactical3DArena:
         # 5. Update opponent bots & ballistic projectiles
         loudest_audio = 0.0
         loudest_vec_xz = np.zeros(2, dtype=np.float32)
-        hazard_accum = 0.25 if surf_here < -0.35 else 0.0
+        hazard_accum = max(
+            0.25 if surf_here < -0.35 else 0.0,
+            0.85 * float(np.clip(1.0 - float(self.hp), 0.0, 1.0)),
+        )
 
         for idx, opp in enumerate(self.opponents):
             if opp["respawn_ticks"] > 0:
@@ -382,6 +427,9 @@ class StandaloneTactical3DArena:
             if d_opp > 0.25:
                 opp["vel"][0] = float(diff_xz[0] / d_opp) * opp_spd
                 opp["vel"][2] = float(diff_xz[1] / d_opp) * opp_spd
+            else:
+                opp["vel"][0] *= 0.5
+                opp["vel"][2] *= 0.5
             opp["pos"][0] = float(np.clip(opp["pos"][0] + opp["vel"][0] * dt, self.wmin[0] + 1.0, self.wmax[0] - 1.0))
             opp["pos"][2] = float(np.clip(opp["pos"][2] + opp["vel"][2] * dt, self.wmin[2] + 1.0, self.wmax[2] - 1.0))
 
@@ -389,36 +437,50 @@ class StandaloneTactical3DArena:
                 if float(np.linalg.norm(opp["pos"][[0, 2]] - self.objective_pos[[0, 2]])) <= 1.25:
                     self.objective_carrier_enemy_idx = idx
 
-            # Acoustic emission from opponent movement/fire
+            opp_just_fired = False
             vec_to_opp = opp["pos"][[0, 2]] - self.self_pos[[0, 2]]
             dist_to_self = float(np.linalg.norm(vec_to_opp))
-            occ_atten = 0.48 if self._is_occluded_by_cover(self.self_pos, opp["pos"]) else 1.0
-            loud = float(np.clip((1.0 - dist_to_self / 16.0) * occ_atten, 0.0, 1.0))
-            if loud > loudest_audio and dist_to_self > 1e-3:
-                loudest_audio = loud
-                loudest_vec_xz = vec_to_opp / dist_to_self
-
             if dist_to_self < 8.5 and can_sense_player and not self._is_occluded_by_cover(opp["pos"], self.self_pos):
-                prox_h = float(np.clip((8.5 - dist_to_self) / 8.5, 0.0, 1.0))
-                hazard_accum = max(hazard_accum, prox_h * (0.85 if self.respawn_invuln_ticks == 0 else 0.20))
                 if opp["fire_cd"] <= 0:
                     dir3 = self.self_pos - opp["pos"]
+                    v_opp_proj = 12.5 + 3.0 * self.opponent_skill
+                    g_opp_proj = float(getattr(self.profile, "projectile_gravity_mps2", 0.0))
+                    t_est = float(np.linalg.norm(dir3)) / max(4.0, v_opp_proj)
+                    dir3[1] += min(0.95, 0.5 * g_opp_proj * t_est * t_est)
                     dir3 /= max(1e-4, float(np.linalg.norm(dir3)))
                     self.projectiles.append({
                         "pos": opp["pos"].copy() + dir3 * 0.8,
-                        "vel": dir3 * (12.5 + 3.0 * self.opponent_skill),
+                        "vel": dir3 * v_opp_proj,
                         "team": -1,
-                        "ttl": 24,
+                        "ttl": 30,
                         "splash": 1.45,
                     })
                     opp["fire_cd"] = max(14, int(round(32 - 14 * self.opponent_skill)))
+                    opp_just_fired = True
             if opp["fire_cd"] > 0:
                 opp["fire_cd"] -= 1
 
-        # Advance projectiles
+            # Event-gated acoustic emission (gunfire or active un-submerged footsteps only!)
+            occ_atten = 0.52 if self._is_occluded_by_cover(self.self_pos, opp["pos"]) else 1.0
+            opp_cur_spd = float(math.hypot(float(opp["vel"][0]), float(opp["vel"][2])))
+            raw_l = 0.0
+            if opp_just_fired:
+                raw_l = 0.92 * max(0.0, 1.0 - dist_to_self / 15.0)
+            elif opp_cur_spd > 0.55:
+                raw_l = 0.62 * max(0.0, 1.0 - dist_to_self / 11.0)
+            loud = float(np.clip(raw_l * occ_atten, 0.0, 1.0))
+            if loud >= 0.05 and loud > loudest_audio and dist_to_self > 1e-3:
+                loudest_audio = loud
+                loudest_vec_xz = vec_to_opp / dist_to_self
+            if opp_just_fired and loud >= 0.30:
+                hazard_accum = max(hazard_accum, float(np.clip((loud - 0.25) * 0.75, 0.0, 0.55)))
+
+        # Advance projectiles with parabolic gravity matching profile.projectile_gravity_mps2
+        g_proj = float(getattr(self.profile, "projectile_gravity_mps2", 0.0))
         alive_proj: List[Dict[str, Any]] = []
         for pr in self.projectiles:
-            pr["pos"] = pr["pos"] + pr["vel"] * dt
+            pr["pos"] = pr["pos"] + pr["vel"] * dt + np.array([0.0, -0.5 * g_proj * dt * dt, 0.0], dtype=np.float32)
+            pr["vel"][1] = float(pr["vel"][1]) - g_proj * dt
             pr["ttl"] -= 1
             hit_something = False
 
@@ -448,8 +510,6 @@ class StandaloneTactical3DArena:
                             break
                 else:
                     d_me = float(np.linalg.norm(pr["pos"] - self.self_pos))
-                    if d_me < 2.8:
-                        hazard_accum = max(hazard_accum, float(np.clip((2.8 - d_me) / 2.8, 0.0, 1.0)))
                     if d_me <= 1.05 and self.respawn_invuln_ticks == 0:
                         self.hp -= 0.52
                         self._paint_disc(float(self.self_pos[0]), float(self.self_pos[2]), 1.5, -1.0)
@@ -463,7 +523,26 @@ class StandaloneTactical3DArena:
                 alive_proj.append(pr)
         self.projectiles = alive_proj[-20:]
 
-        if self.step_ticks_in_ep >= 720:
+        max_ep_ticks = 860 if int(getattr(self.cfg, "default_stage_id", 1)) == 2 else 720
+        if (not self.carrying_objective) and self.objective_carrier_enemy_idx < 0 and int(getattr(self.cfg, "default_stage_id", 1)) == 2:
+            if float(np.linalg.norm(self.objective_pos[[0, 2]])) > 0.15:
+                self.dropped_idle_ticks += 1
+                if self.dropped_idle_ticks > 120:
+                    self.objective_pos[0] *= 0.965
+                    self.objective_pos[2] *= 0.965
+                    if float(np.linalg.norm(self.objective_pos[[0, 2]])) < 0.20:
+                        self.objective_pos[:] = [0.0, 1.1, 0.0]
+                        self.dropped_idle_ticks = 0
+                    ped_v = self.attack_pedestal_pos[[0, 2]] - self.defend_pedestal_pos[[0, 2]]
+                    self.objective_progress = float(
+                        np.clip(np.dot(self.objective_pos[[0, 2]] - self.defend_pedestal_pos[[0, 2]], ped_v) / max(1.0, float(np.dot(ped_v, ped_v))), 0.0, 1.0)
+                    )
+            else:
+                self.dropped_idle_ticks = 0
+        else:
+            self.dropped_idle_ticks = 0
+
+        if self.step_ticks_in_ep >= max_ep_ticks:
             episode_done = True
 
         self.cumulative_score += step_reward
@@ -517,16 +596,31 @@ class StandaloneTactical3DArena:
         if vcnt > 0:
             vis_arr[:vcnt] = np.stack(vis_list[:vcnt], axis=0)
 
+        # Somatic + strictly 1st-person visible hostile hazard (no behind-back invisible proximity leak!)
+        for ent in vis_list:
+            if float(ent[8]) < -0.25:
+                dv_h = float(np.linalg.norm(ent[1:4] - self.self_pos))
+                if int(round(float(ent[0]))) >= 500:
+                    if dv_h < 3.6:
+                        hazard_accum = max(hazard_accum, float(np.clip((3.6 - dv_h) / 3.6, 0.0, 1.0)))
+                elif dv_h < 8.5:
+                    hazard_accum = max(
+                        hazard_accum,
+                        float(np.clip((8.5 - dv_h) / 8.5 * float(ent[9]) * (0.85 if self.respawn_invuln_ticks == 0 else 0.20), 0.0, 1.0)),
+                    )
+
         fovea = self._render_foveal_patch(fwd, right, up, vis_list)
 
-        # Ego-relative directional audio sin/cos
+        # Ego-relative directional audio sin/cos (zeroed to ego-forward when below audible threshold)
         audio_sin = 0.0
         audio_cos = 1.0
-        if loudest_audio > 0.02:
+        if loudest_audio >= 0.05:
             world_ang = math.atan2(float(loudest_vec_xz[0]), float(loudest_vec_xz[1]))
             rel_ang = world_ang - float(self.gaze_ypd[0])
             audio_sin = float(math.sin(rel_ang))
             audio_cos = float(math.cos(rel_ang))
+        else:
+            loudest_audio = 0.0
 
         if self.in_refuge:
             posture_val = 0.95

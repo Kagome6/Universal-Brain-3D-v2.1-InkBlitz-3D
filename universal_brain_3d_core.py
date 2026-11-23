@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-universal_brain_3d_core.py — Domain-Agnostic 3D Functionalist Cognitive Engine (v2.1)
-=====================================================================================
+universal_brain_3d_core.py — Domain-Agnostic 3D Functionalist Cognitive Engine (v2.3.0)
+=======================================================================================
 Closed-Loop Asynchronous Whole-Brain Architecture for Partially Observable 3D Environments
 (`InkBlitz 3D` Paint-Territory & BlitzCore Escort Arena / Built-in Headless 3D Tactical Arena).
 
-Established Closed-Loop Mechanisms in v2.1:
+Established Closed-Loop Mechanisms in v2.3.0:
   1. 4-Layer Dynamic Allocentric Cognitive Field Map (`MultiLayerCognitiveFieldMap3D`):
      48x48 spatial memory tracking (`occ` obstacle belief, `surface` turf valence with epistemic decay
      toward `0.0` when unobserved, `elev` 3D height/cover, and `visit` freshness), coupled with
@@ -677,7 +677,7 @@ def run_full_self_verification() -> bool:
     Execute all 7 automated verification stages with zero residual test files (`TemporaryDirectory`).
     """
     print("=" * 78)
-    print("  Universal Brain 3D v2.1 — 7-Stage End-to-End Verification Suite")
+    print("  Universal Brain 3D v2.3.0 — 7-Stage End-to-End Verification Suite")
     print("=" * 78)
 
     # --- STAGE 1: Wire Framing (`UB3D` v1/v2, `UBMC`, `UBNT`, `UBNC`, `UBND`) & SeqLock CRC32 ---
@@ -1362,7 +1362,7 @@ def run_world_model_verification(load_weights_path: str = "", seed: int = 2026) 
 
 
 def build_cli_arg_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="Universal Brain 3D v2.0 — Domain-Agnostic 3D Cognitive Engine")
+    ap = argparse.ArgumentParser(description="Universal Brain 3D v2.3.0 — Domain-Agnostic 3D Cognitive Engine")
     ap.add_argument("--mode", type=str, default="verify_all", choices=["verify_all", "verify_world_model", "play", "train"])
     ap.add_argument("--env", type=str, default="builtin_3d", choices=["builtin_3d", "unity_tcp"])
     ap.add_argument("--task-profile", type=str, default="turf_objective", choices=list(get_task_profile("universal_tactical") and ["universal_tactical", "turf_objective"]))
@@ -1373,6 +1373,7 @@ def build_cli_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-episodes", type=int, default=0)
     ap.add_argument("--policy-mode", type=str, default="pure_neural", choices=["scaffold", "anneal", "dagger", "pure_neural"])
     ap.add_argument("--anneal-transitions", type=int, default=1600)
+    ap.add_argument("--scaffold-prior-scale", type=float, default=1.0, help="Scale [0..1] for hand-crafted L2 compass priors (0.0 = 100% autonomous neural)")
     ap.add_argument("--time-scale", type=float, default=1.0)
     ap.add_argument("--timing-mode", type=int, default=TIMING_MODE_BG_ADAPTIVE, choices=[0, 1, 2, 3])
     ap.add_argument("--spatial-mode", type=int, default=SPATIAL_MODE_FULL_MEC_3D, choices=[0, 1, 2, 3])
@@ -1429,6 +1430,7 @@ def main() -> int:
         visual_mode=args.visual_mode,
         policy_mode=args.policy_mode,
         anneal_transitions=args.anneal_transitions,
+        scaffold_prior_scale=float(np.clip(args.scaffold_prior_scale, 0.0, 1.0)),
         time_scale=args.time_scale,
         enable_learning=learn_flag,
         autosave_per_episode=args.autosave_per_episode,

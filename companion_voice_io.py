@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-companion_voice_io.py — Ollama Post-Match Analyst, AivisSpeech/VOICEVOX TTS & faster-whisper STT Sidecar
-========================================================================================================
+companion_voice_io.py — Ollama Post-Match Analyst, AivisSpeech/VOICEVOX TTS & faster-whisper STT Sidecar (v2.3.0)
+=================================================================================================================
 Reusable peripheral AI I/O & companion service module for 3D Pseudo-Brain Unity projects:
   1. `OllamaMatchAnalystClient`:
      - Auto-probes `http://127.0.0.1:11434/api/tags` to detect loaded local LLMs (prioritizing `gemma4:12b`,

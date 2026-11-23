@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_config_ipc.py — Universal 3D Embodiment Config, POMDP/SafetyShield Rules,
-Lock-Free SeqLock+CRC32 Shared-Memory Buses, Unity Wire Protocol & Retinotopic Helpers
-======================================================================================
+Lock-Free SeqLock+CRC32 Shared-Memory Buses, Unity Wire Protocol & Retinotopic Helpers (v2.3.0)
+===============================================================================================
 Barrier 1 Guarantee: Strictly Zero-PyTorch (`"torch" not in sys.modules`).
 License: GNU General Public License v3.0 (GPL-3.0)
 """
@@ -291,6 +291,7 @@ class Brain3DConfig:
     allow_broca_motor_bias: bool = False      # Plan A default: False (0.0 motor interference from inner speech)
     policy_mode: str = "pure_neural"          # "scaffold" | "anneal" | "dagger" | "pure_neural"
     anneal_transitions: int = 1600
+    scaffold_prior_scale: float = 1.0         # v2.3 Scaffold Annealing (`1.0` = full L2 compass prior, `0.0` = 100% autonomous neural ranking!)
     time_scale: float = 1.0
     enable_learning: bool = True
     autosave_per_episode: bool = False
@@ -317,6 +318,7 @@ class Brain3DConfig:
     enable_strategy_kb: bool = False          # Enabled in play/train/spectate CLI entrypoints; False in synthetic tests
     strategy_db_path: str = ""
     enable_safety_shield: bool = True         # Unified SafetyShield toggle (True = tactical anti-freeze/escape shield; False = pure neural ablation)
+    disable_bg_escape_bypass: bool = False    # Surgical ablation flag: disables ONLY Basal Ganglia 0ms emergency escape exemption without motor slowdown
     strict_pomdp_observation: bool = True     # Replaces ground-truth proprio[0:3] with EKF-SLAM believed_self_pos (eliminates true-pose leak)
     export_field_maps_to_shm: bool = False    # Optional 11.5KB 4-layer map SHM bus export (off by default to save 72% 60Hz SHM/CRC bandwidth)
     unity_socket_timeout_sec: float = 2.5     # Resilient TCP timeout preventing false disconnects during sleep or Unity frame spikes
@@ -413,6 +415,8 @@ def is_bg_emergency_escape_exempt(
     cfg: Optional[Brain3DConfig] = None,
 ) -> bool:
     """Centralized SafetyShield Rule #3: Basal Ganglia 0ms hyperdirect escape exemption."""
+    if cfg is not None and bool(getattr(cfg, "disable_bg_escape_bypass", False)):
+        return False
     if cfg is not None and (not bool(getattr(cfg, "enable_safety_shield", True))):
         return int(chosen_verb) == VERB_EVADE_HAZARD
     exposed_danger = (not in_refuge) and (
@@ -462,6 +466,7 @@ def extract_brain_genes_from_cfg(cfg: Brain3DConfig) -> Dict[str, Any]:
         "broca_prior_gain": float(np.clip(getattr(cfg, "broca_prior_gain", 1.0), 0.20, 2.40)),
         "policy_temp": float(np.clip(getattr(cfg, "policy_temp", 0.34), 0.15, 0.85)),
         "survival_veto_threshold": float(np.clip(getattr(cfg, "survival_veto_threshold", 0.42), 0.25, 0.62)),
+        "scaffold_prior_scale": float(np.clip(getattr(cfg, "scaffold_prior_scale", 1.0), 0.0, 1.0)),
     }
 
 
@@ -498,6 +503,8 @@ def apply_checkpoint_genes_to_cfg(cfg: Brain3DConfig, genes: Optional[Dict[str, 
         cfg.policy_temp = float(np.clip(float(genes["policy_temp"]), 0.15, 0.85))
     if "survival_veto_threshold" in genes:
         cfg.survival_veto_threshold = float(np.clip(float(genes["survival_veto_threshold"]), 0.25, 0.62))
+    if "scaffold_prior_scale" in genes:
+        cfg.scaffold_prior_scale = float(np.clip(float(genes["scaffold_prior_scale"]), 0.0, 1.0))
     return cfg
 
 

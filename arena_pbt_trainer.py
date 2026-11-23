@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-arena_pbt_trainer.py — 1-GPU Parallel Multi-Arena PBT & Competitive Self-Play League Trainer (v2.0)
-====================================================================================================
+arena_pbt_trainer.py — 1-GPU Parallel Multi-Arena PBT & Competitive Self-Play League Trainer (v2.3.0)
+=====================================================================================================
 Encapsulates simultaneous multi-environment execution (`builtin_3d` parallel worker processes OR
 `unity_tcp` multi-port simultaneous arenas inside a single Unity instance) + Population-Based
 Training (PBT) + Prioritized Fictitious Self-Play (PFSP) Elo League on a SINGLE CUDA GPU.
@@ -54,6 +54,17 @@ import numpy as np
 _PARENT_WS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.isfile(os.path.join(_PARENT_WS_DIR, "universal_brain_3d_core.py")) and _PARENT_WS_DIR not in sys.path:
     sys.path.insert(0, _PARENT_WS_DIR)
+
+try:
+    from native_accel.fast_kernels_bridge import (
+        NATIVE_KERNELS_AVAILABLE as _ARENA_NATIVE_OK,
+        f32_ptr as _arena_f32_ptr,
+        get_native_lib as _arena_get_native_lib,
+    )
+    _ARENA_NATIVE_LIB = _arena_get_native_lib() if _ARENA_NATIVE_OK else None
+except Exception:
+    _ARENA_NATIVE_OK = False
+    _ARENA_NATIVE_LIB = None
 
 from task_profiles_3d import (
     CONT_POSE_DIM,
@@ -329,12 +340,9 @@ class HeadToHeadTactical3DArena:
         self.episode_id = 0
         self.physics_tick = 0
         self.ticks_in_ep = 0
-        self.cover_blocks = [
-            {"id": 101, "pos": np.array([-4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25},
-            {"id": 102, "pos": np.array([4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25},
-            {"id": 103, "pos": np.array([-4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25},
-            {"id": 104, "pos": np.array([4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25},
-        ]
+        self.dropped_idle_ticks = 0
+        self.stage_id = int(getattr(cfg, "default_stage_id", 1))
+        self.cover_blocks: List[Dict[str, Any]] = []
         self.north_pedestal = np.array([0.0, 1.2, float(self.wmax[2] - 3.0)], dtype=np.float32)
         self.south_pedestal = np.array([0.0, 1.2, float(self.wmin[2] + 3.0)], dtype=np.float32)
         self.objective_pos = np.array([0.0, 1.1, 0.0], dtype=np.float32)
@@ -342,7 +350,36 @@ class HeadToHeadTactical3DArena:
         self.objective_progress_a = 0.50
         self.projectiles: List[Dict[str, Any]] = []
         self.agents: Dict[int, Dict[str, Any]] = {}
+        self._apply_stage_geometry(self.stage_id)
         self.reset_episode()
+
+    def _apply_stage_geometry(self, stage_id: int) -> None:
+        self.stage_id = 2 if int(stage_id) == 2 else 1
+        if self.stage_id == 2:
+            # Stage 2: Occluded Twin-Flank — 180-deg involution-symmetric central S-baffle chicane + twin flank gates
+            self.south_pedestal = np.array([6.8, 1.28, float(self.wmin[2] + 3.2)], dtype=np.float32)
+            self.north_pedestal = np.array([-6.8, 1.28, float(self.wmax[2] - 3.2)], dtype=np.float32)
+            self.cover_blocks = [
+                {"id": 101, "pos": np.array([-1.2, 1.3, -3.85], dtype=np.float32), "radius": 1.35},
+                {"id": 102, "pos": np.array([1.2, 1.3, 3.85], dtype=np.float32), "radius": 1.35},
+                {"id": 103, "pos": np.array([1.1, 1.3, -3.55], dtype=np.float32), "radius": 1.40},
+                {"id": 104, "pos": np.array([-1.1, 1.3, 3.55], dtype=np.float32), "radius": 1.40},
+                {"id": 105, "pos": np.array([3.3, 1.3, -3.25], dtype=np.float32), "radius": 1.30},
+                {"id": 106, "pos": np.array([-3.3, 1.3, 3.25], dtype=np.float32), "radius": 1.30},
+                {"id": 107, "pos": np.array([-6.2, 1.3, -1.8], dtype=np.float32), "radius": 1.20},
+                {"id": 108, "pos": np.array([6.2, 1.3, 1.8], dtype=np.float32), "radius": 1.20},
+                {"id": 109, "pos": np.array([3.0, 1.3, -8.8], dtype=np.float32), "radius": 1.20},
+                {"id": 110, "pos": np.array([-3.0, 1.3, 8.8], dtype=np.float32), "radius": 1.20},
+            ]
+        else:
+            self.north_pedestal = np.array([0.0, 1.2, float(self.wmax[2] - 3.0)], dtype=np.float32)
+            self.south_pedestal = np.array([0.0, 1.2, float(self.wmin[2] + 3.0)], dtype=np.float32)
+            self.cover_blocks = [
+                {"id": 101, "pos": np.array([-4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25},
+                {"id": 102, "pos": np.array([4.2, 1.3, -4.5], dtype=np.float32), "radius": 1.25},
+                {"id": 103, "pos": np.array([-4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25},
+                {"id": 104, "pos": np.array([4.2, 1.3, 4.5], dtype=np.float32), "radius": 1.25},
+            ]
 
     def _world_to_cell(self, x: float, z: float) -> Tuple[int, int]:
         ix = int(np.clip(math.floor((float(x) - float(self.wmin[0])) / float(self.span[0]) * self.grid_n), 0, self.grid_n - 1))
@@ -379,19 +416,28 @@ class HeadToHeadTactical3DArena:
         return False
 
     def reset_episode(self) -> None:
+        cfg_st = int(getattr(self.cfg, "default_stage_id", 1))
+        if cfg_st != self.stage_id:
+            self._apply_stage_geometry(cfg_st)
         self.episode_id += 1
         self.ticks_in_ep = 0
+        self.dropped_idle_ticks = 0
         self.surface_grid.fill(0.0)
         self.projectiles.clear()
         self.objective_pos = np.array([0.0, 1.1, 0.0], dtype=np.float32)
         self.carrier_team = 0
         self.objective_progress_a = 0.50
 
+        # Exact 180-deg involution-symmetric spawn offset: (+x_a, z_south) <-> (-x_a, -z_south)
+        x0 = float(self.rng.uniform(-1.5, 1.5)) if self.stage_id == 2 else float(self.rng.uniform(-2.0, 2.0))
+        base_x_a = (-7.0 + x0) if self.stage_id == 2 else x0
+        z_margin = 2.8 if self.stage_id == 2 else 3.5
         for t_sign in (+1, -1):
-            z_sp = float(self.wmin[2] + 3.5) if t_sign > 0 else float(self.wmax[2] - 3.5)
+            z_sp = float(self.wmin[2] + z_margin) if t_sign > 0 else float(self.wmax[2] - z_margin)
+            x_sp = base_x_a if t_sign > 0 else -base_x_a
             yaw0 = 0.0 if t_sign > 0 else math.pi
             self.agents[t_sign] = {
-                "pos": np.array([float(self.rng.uniform(-2.0, 2.0)), 1.5, z_sp], dtype=np.float32),
+                "pos": np.array([x_sp, 1.5, z_sp], dtype=np.float32),
                 "vel": np.zeros(3, dtype=np.float32),
                 "gaze_ypd": np.array([yaw0, -0.15, 6.0], dtype=np.float32),
                 "aim_yp": np.array([yaw0, -0.15], dtype=np.float32),
@@ -402,6 +448,7 @@ class HeadToHeadTactical3DArena:
                 "submerge_lock": 0.0,
                 "submerged": False,
                 "in_refuge": False,
+                "just_fired": False,
                 "cd": 0,
                 "invuln": 0,
                 "respawn_flag": False,
@@ -437,6 +484,7 @@ class HeadToHeadTactical3DArena:
         for t_sign in (+1, -1):
             ag = self.agents[t_sign]
             ag["respawn_flag"] = False
+            ag["just_fired"] = False
             if ag["cd"] > 0:
                 ag["cd"] -= 1
             if ag["invuln"] > 0:
@@ -497,6 +545,7 @@ class HeadToHeadTactical3DArena:
             if commit_ok and ag["cd"] == 0:
                 if verb in (VERB_RELEASE_PLACE, VERB_IMPULSE_PUSH) and ag["tank"] >= self.profile.min_resource_to_fire and self.carrier_team != t_sign:
                     ag["tank"] = max(0.0, ag["tank"] - (0.14 if verb == VERB_RELEASE_PLACE else 0.24))
+                    ag["just_fired"] = True
                     sy, cy = math.sin(float(ag["aim_yp"][0])), math.cos(float(ag["aim_yp"][0]))
                     cp, sp = max(0.25, math.cos(float(ag["aim_yp"][1]))), math.sin(float(ag["aim_yp"][1]))
                     dv = np.array([sy * cp, sp, cy * cp], dtype=np.float32)
@@ -505,7 +554,7 @@ class HeadToHeadTactical3DArena:
                         "pos": ag["pos"].copy() + dv * 0.8,
                         "vel": dv * float(self.profile.projectile_speed_mps),
                         "team": t_sign,
-                        "ttl": 20,
+                        "ttl": 32,
                         "splash": 1.65 if verb == VERB_RELEASE_PLACE else 2.25,
                     })
                     fl = self._paint_disc(float(ag["pos"][0] + dv[0] * 2.0), float(ag["pos"][2] + dv[2] * 2.0), 1.3, t_sign)
@@ -513,18 +562,30 @@ class HeadToHeadTactical3DArena:
                     ag["cd"] = 8
                     ag["epoch"] += 1
 
-            if self.carrier_team == 0 and float(np.linalg.norm(ag["pos"][[0, 2]] - self.objective_pos[[0, 2]])) <= 1.45:
-                self.carrier_team = t_sign
-                rews[t_sign] += 3.0
-                rews[-t_sign] -= 0.80
-                ag["epoch"] += 1
+        # Order-independent simultaneous neutral objective pickup (preserves exact 180-deg symmetry!)
+        if self.carrier_team == 0:
+            da_obj = float(np.linalg.norm(self.agents[+1]["pos"][[0, 2]] - self.objective_pos[[0, 2]]))
+            db_obj = float(np.linalg.norm(self.agents[-1]["pos"][[0, 2]] - self.objective_pos[[0, 2]]))
+            if da_obj <= 1.45 and (db_obj > 1.45 or da_obj < db_obj - 1e-6):
+                self.carrier_team = +1
+                rews[+1] += 3.0
+                rews[-1] -= 0.80
+                self.agents[+1]["epoch"] += 1
+            elif db_obj <= 1.45 and (da_obj > 1.45 or db_obj < da_obj - 1e-6):
+                self.carrier_team = -1
+                rews[-1] += 3.0
+                rews[+1] -= 0.80
+                self.agents[-1]["epoch"] += 1
 
-        # Update carried objective & knockout check
+        # Update carried objective & knockout check (Stage 2 also decays unescorted dropped cores back toward neutral)
         if self.carrier_team != 0:
+            self.dropped_idle_ticks = 0
             c_ag = self.agents[self.carrier_team]
             self.objective_pos = c_ag["pos"].copy()
             prev_p = self.objective_progress_a
-            zf = (float(self.objective_pos[2]) - float(self.south_pedestal[2])) / max(1.0, float(self.north_pedestal[2] - self.south_pedestal[2]))
+            ped_vec = self.north_pedestal[[0, 2]] - self.south_pedestal[[0, 2]]
+            ped_l2 = max(1.0, float(np.dot(ped_vec, ped_vec)))
+            zf = float(np.dot(self.objective_pos[[0, 2]] - self.south_pedestal[[0, 2]], ped_vec)) / ped_l2
             self.objective_progress_a = float(np.clip(zf, 0.0, 1.0))
             delta_a = self.objective_progress_a - prev_p
             rews[+1] += delta_a * 8.0
@@ -536,11 +597,27 @@ class HeadToHeadTactical3DArena:
                 rews[-self.carrier_team] -= 10.0
                 ep_done = True
                 winner = self.carrier_team
+        elif self.stage_id == 2 and float(np.linalg.norm(self.objective_pos[[0, 2]])) > 0.15:
+            self.dropped_idle_ticks += 1
+            if self.dropped_idle_ticks > 120:
+                self.objective_pos[0] *= 0.965
+                self.objective_pos[2] *= 0.965
+                if float(np.linalg.norm(self.objective_pos[[0, 2]])) < 0.20:
+                    self.objective_pos[:] = [0.0, 1.1, 0.0]
+                    self.dropped_idle_ticks = 0
+                ped_vec = self.north_pedestal[[0, 2]] - self.south_pedestal[[0, 2]]
+                ped_l2 = max(1.0, float(np.dot(ped_vec, ped_vec)))
+                self.objective_progress_a = float(
+                    np.clip(float(np.dot(self.objective_pos[[0, 2]] - self.south_pedestal[[0, 2]], ped_vec)) / ped_l2, 0.0, 1.0)
+                )
 
-        # Advance projectiles
+        # Advance ballistic projectiles with exact parabolic gravity (`profile.projectile_gravity_mps2`, matching Unity 6!)
+        g_proj = float(getattr(self.profile, "projectile_gravity_mps2", 0.0))
         alive_p = []
+        pending_splats = []
         for pr in self.projectiles:
-            pr["pos"] = pr["pos"] + pr["vel"] * dt
+            pr["pos"] = pr["pos"] + pr["vel"] * dt + np.array([0.0, -0.5 * g_proj * dt * dt, 0.0], dtype=np.float32)
+            pr["vel"][1] = float(pr["vel"][1]) - g_proj * dt
             pr["ttl"] -= 1
             hit = False
             if pr["pos"][1] <= float(self.wmin[1]) + 0.15 or pr["ttl"] <= 0:
@@ -563,27 +640,35 @@ class HeadToHeadTactical3DArena:
                     rews[opp_sign] -= 0.85
                     self._paint_disc(float(opp_ag["pos"][0]), float(opp_ag["pos"][2]), 1.6, int(pr["team"]))
                     hit = True
-                    if opp_ag["hp"] <= 0.0:
-                        rews[int(pr["team"])] += 3.5
-                        rews[opp_sign] -= 3.0
-                        if self.carrier_team == opp_sign:
-                            self.carrier_team = 0
-                            self.objective_pos = np.array([float(opp_ag["pos"][0]), 1.1, float(opp_ag["pos"][2])], dtype=np.float32)
-                        z_sp = float(self.wmin[2] + 3.2) if opp_sign > 0 else float(self.wmax[2] - 3.2)
-                        opp_ag["pos"] = np.array([float(self.rng.uniform(-2.0, 2.0)), 1.5, z_sp], dtype=np.float32)
-                        opp_ag["vel"].fill(0.0)
-                        opp_ag["hp"] = 1.0
-                        opp_ag["regen_delay"] = 0.0
-                        opp_ag["tank"] = 1.0
-                        opp_ag["invuln"] = 18
-                        opp_ag["respawn_flag"] = True
-                        opp_ag["epoch"] += 1
-                        self._paint_disc(float(opp_ag["pos"][0]), z_sp, 2.0, opp_sign)
+                    if opp_ag["hp"] <= 0.0 and opp_sign not in pending_splats:
+                        pending_splats.append(opp_sign)
             if not hit:
                 alive_p.append(pr)
+        for opp_sign in pending_splats:
+            opp_ag = self.agents[opp_sign]
+            rews[-opp_sign] += 3.5
+            rews[opp_sign] -= 3.0
+            if self.carrier_team == opp_sign:
+                self.carrier_team = 0
+                self.dropped_idle_ticks = 0
+                self.objective_pos = np.array([float(opp_ag["pos"][0]), 1.1, float(opp_ag["pos"][2])], dtype=np.float32)
+            z_margin_r = 2.8 if self.stage_id == 2 else 3.2
+            z_sp = float(self.wmin[2] + z_margin_r) if opp_sign > 0 else float(self.wmax[2] - z_margin_r)
+            rx_raw = float(self.rng.uniform(-1.5, 1.5)) if self.stage_id == 2 else float(self.rng.uniform(-2.0, 2.0))
+            rx_a = (-7.0 + rx_raw) if self.stage_id == 2 else rx_raw
+            opp_ag["pos"] = np.array([rx_a if opp_sign > 0 else -rx_a, 1.5, z_sp], dtype=np.float32)
+            opp_ag["vel"].fill(0.0)
+            opp_ag["hp"] = 1.0
+            opp_ag["regen_delay"] = 0.0
+            opp_ag["tank"] = 1.0
+            opp_ag["invuln"] = 18
+            opp_ag["respawn_flag"] = True
+            opp_ag["epoch"] += 1
+            self._paint_disc(float(opp_ag["pos"][0]), z_sp, 2.0, opp_sign)
         self.projectiles = alive_p[-24:]
 
-        if self.ticks_in_ep >= 540 and not ep_done:
+        max_ep_ticks = 780 if self.stage_id == 2 else 540
+        if self.ticks_in_ep >= max_ep_ticks and not ep_done:
             ep_done = True
             if abs(self.objective_progress_a - 0.50) > 0.04:
                 winner = +1 if self.objective_progress_a > 0.50 else -1
@@ -636,6 +721,9 @@ class HeadToHeadTactical3DArena:
         if (not en["in_refuge"]) or d_en < 3.6:
             etag = SemanticTag.ENEMY_CARRIER_OR_SHOT if self.carrier_team == -t_sign else SemanticTag.OPPONENT_AGENT
             _add(201, en["pos"], en["vel"], 0.75, etag, True)
+        for pidx, pr in enumerate(self.projectiles[:6]):
+            if int(pr["team"]) == -t_sign:
+                _add(500 + pidx, pr["pos"], pr["vel"], 0.35, SemanticTag.ENEMY_CARRIER_OR_SHOT, True)
 
         vis_arr = np.zeros((MAX_ENTITIES, ENTITY_DIM), dtype=np.float32)
         vc = min(MAX_ENTITIES, len(vis_list))
@@ -644,56 +732,101 @@ class HeadToHeadTactical3DArena:
 
         # Render 16x16x4 fovea with team-relative surface encoding (`>0.25` friendly -> `0.78`, `<-0.25` enemy -> `0.25`)
         th = math.tan(math.radians(self.cfg.fovea_half_angle_deg))
-        u = np.linspace(-th, th, FOVEA_W, dtype=np.float32)
-        v = np.linspace(th, -th, FOVEA_H, dtype=np.float32)
-        uu, vv = np.meshgrid(u, v)
-        dirs = fwd[None, None, :] + uu[:, :, None] * right[None, None, :] + vv[:, :, None] * up[None, None, :]
-        dirs /= np.maximum(1e-6, np.linalg.norm(dirs, axis=-1, keepdims=True))
         max_r = float(self.cfg.fovea_max_range_m)
-        best_t = np.full((FOVEA_H, FOVEA_W), max_r, dtype=np.float32)
-        nx = np.zeros((FOVEA_H, FOVEA_W), dtype=np.float32)
-        ny = np.zeros((FOVEA_H, FOVEA_W), dtype=np.float32)
-        sal = np.full((FOVEA_H, FOVEA_W), 0.10, dtype=np.float32)
+        if _ARENA_NATIVE_LIB is not None and self.surface_grid.flags["C_CONTIGUOUS"]:
+            fovea = np.empty((FOVEA_H, FOVEA_W, 4), dtype=np.float32)
+            n_vis_r = min(12, vc)
+            ent_ptr = _arena_f32_ptr(vis_arr) if n_vis_r > 0 else None
+            _ARENA_NATIVE_LIB.ub3d_render_fovea_16x16(
+                float(me["pos"][0]), float(me["pos"][1]), float(me["pos"][2]),
+                float(me["gaze_ypd"][0]), float(me["gaze_ypd"][1]),
+                float(th), float(max_r),
+                float(self.wmin[0]), float(self.wmin[1]), float(self.wmin[2]),
+                float(self.span[0]), float(self.span[2]),
+                _arena_f32_ptr(self.surface_grid), int(self.grid_n), float(t_sign),
+                ent_ptr, int(n_vis_r),
+                _arena_f32_ptr(fovea),
+            )
+        else:
+            u = np.linspace(-th, th, FOVEA_W, dtype=np.float32)
+            v = np.linspace(th, -th, FOVEA_H, dtype=np.float32)
+            uu, vv = np.meshgrid(u, v)
+            dirs = fwd[None, None, :] + uu[:, :, None] * right[None, None, :] + vv[:, :, None] * up[None, None, :]
+            dirs /= np.maximum(1e-6, np.linalg.norm(dirs, axis=-1, keepdims=True))
+            best_t = np.full((FOVEA_H, FOVEA_W), max_r, dtype=np.float32)
+            nx = np.zeros((FOVEA_H, FOVEA_W), dtype=np.float32)
+            ny = np.zeros((FOVEA_H, FOVEA_W), dtype=np.float32)
+            sal = np.full((FOVEA_H, FOVEA_W), 0.10, dtype=np.float32)
 
-        dy = dirs[:, :, 1]
-        m_fl = dy < -1e-4
-        t_fl = (float(self.wmin[1]) - float(me["pos"][1])) / np.where(m_fl, dy, -1.0)
-        h_fl = m_fl & (t_fl > 0.05) & (t_fl < best_t)
-        if np.any(h_fl):
-            best_t = np.where(h_fl, t_fl, best_t)
-            ny = np.where(h_fl, 1.0, ny)
-            hx = me["pos"][0] + best_t * dirs[:, :, 0]
-            hz = me["pos"][2] + best_t * dirs[:, :, 2]
-            ix = np.clip(np.floor((hx - self.wmin[0]) / self.span[0] * self.grid_n).astype(np.int32), 0, self.grid_n - 1)
-            iz = np.clip(np.floor((hz - self.wmin[2]) / self.span[2] * self.grid_n).astype(np.int32), 0, self.grid_n - 1)
-            sv = self.surface_grid[iz, ix] * float(t_sign)
-            sal = np.where(h_fl, np.where(sv > 0.25, 0.78, np.where(sv < -0.25, 0.25, 0.50)), sal)
+            dy = dirs[:, :, 1]
+            m_fl = dy < -1e-4
+            t_fl = (float(self.wmin[1]) - float(me["pos"][1])) / np.where(m_fl, dy, -1.0)
+            h_fl = m_fl & (t_fl > 0.05) & (t_fl < best_t)
+            if np.any(h_fl):
+                best_t = np.where(h_fl, t_fl, best_t)
+                ny = np.where(h_fl, 1.0, ny)
+                hx = me["pos"][0] + best_t * dirs[:, :, 0]
+                hz = me["pos"][2] + best_t * dirs[:, :, 2]
+                ix = np.clip(np.floor((hx - self.wmin[0]) / self.span[0] * self.grid_n).astype(np.int32), 0, self.grid_n - 1)
+                iz = np.clip(np.floor((hz - self.wmin[2]) / self.span[2] * self.grid_n).astype(np.int32), 0, self.grid_n - 1)
+                sv = self.surface_grid[iz, ix] * float(t_sign)
+                sal = np.where(h_fl, np.where(sv > 0.25, 0.78, np.where(sv < -0.25, 0.25, 0.50)), sal)
 
-        for ent in vis_list[:12]:
-            oc = ent[1:4] - me["pos"]
-            rad = float(ent[7])
-            bp = np.einsum("hwc,c->hw", dirs, oc)
-            disc = bp * bp - float(np.dot(oc, oc) - rad * rad)
-            ts = bp - np.sqrt(np.maximum(0.0, disc))
-            cl = (disc > 0.0) & (ts > 0.05) & (ts < best_t)
-            if np.any(cl):
-                best_t = np.where(cl, ts, best_t)
-                n_vec = (me["pos"][None, None, :] + best_t[:, :, None] * dirs - ent[None, None, 1:4]) / max(1e-3, rad)
-                nx = np.where(cl, n_vec[:, :, 0], nx)
-                ny = np.where(cl, n_vec[:, :, 1], ny)
-                sal = np.where(cl, 0.95 if ent[8] < 0 else 0.60, sal)
+            for ent in vis_list[:12]:
+                oc = ent[1:4] - me["pos"]
+                rad = float(ent[7])
+                bp = np.einsum("hwc,c->hw", dirs, oc)
+                disc = bp * bp - float(np.dot(oc, oc) - rad * rad)
+                ts = bp - np.sqrt(np.maximum(0.0, disc))
+                cl = (disc > 0.0) & (ts > 0.05) & (ts < best_t)
+                if np.any(cl):
+                    best_t = np.where(cl, ts, best_t)
+                    n_vec = (me["pos"][None, None, :] + best_t[:, :, None] * dirs - ent[None, None, 1:4]) / max(1e-3, rad)
+                    nx = np.where(cl, n_vec[:, :, 0], nx)
+                    ny = np.where(cl, n_vec[:, :, 1], ny)
+                    sal = np.where(cl, 0.95 if ent[8] < 0 else 0.60, sal)
 
-        fovea = np.stack([1.0 - np.clip(best_t / max_r, 0.0, 1.0), nx, ny, sal], axis=-1).astype(np.float32)
+            fovea = np.stack([1.0 - np.clip(best_t / max_r, 0.0, 1.0), nx, ny, sal], axis=-1).astype(np.float32)
 
         iz_m, ix_m = self._world_to_cell(float(me["pos"][0]), float(me["pos"][2]))
         my_s = float(self.surface_grid[iz_m, ix_m]) * float(t_sign)
-        haz = float(np.clip((8.0 - d_en) / 8.0 * (0.0 if self._is_occluded(me["pos"], en["pos"]) else 0.80), 0.0, 1.0))
+
+        # Strict 1st-person event-gated acoustic & somatic/visual hazard model (matching Unity 6 ArenaAudioSystem.cs — ZERO wallhack/bearing leak!)
+        en_spd = float(np.linalg.norm(en["vel"][[0, 2]]))
+        occ_atten = 0.52 if self._is_occluded(me["pos"], en["pos"]) else 1.0
+        raw_loud = 0.0
+        if bool(en.get("just_fired", False)) or int(en.get("cd", 0)) >= 6:
+            raw_loud = max(raw_loud, 0.92 * max(0.0, 1.0 - d_en / 15.0))
+        elif (not en["in_refuge"]) and (not bool(en.get("submerged", False))) and en_spd > 0.55:
+            raw_loud = max(raw_loud, 0.62 * max(0.0, 1.0 - d_en / 11.0))
+        elif bool(en.get("submerged", False)) and en_spd > 0.80:
+            raw_loud = max(raw_loud, 0.38 * max(0.0, 1.0 - d_en / 4.2))
+        loud = float(np.clip(raw_loud * occ_atten, 0.0, 1.0))
+        if loud >= 0.05 and d_en > 1e-4:
+            rel_en = en["pos"][[0, 2]] - me["pos"][[0, 2]]
+            ang_en = math.atan2(float(rel_en[0]), float(rel_en[1])) - float(me["gaze_ypd"][0])
+            aud_sin, aud_cos = math.sin(ang_en), math.cos(ang_en)
+        else:
+            loud = 0.0
+            aud_sin, aud_cos = 0.0, 1.0
+
+        # Somatic + 1st-person visual/acoustic hazard only (never uses unseen/silent true distance d_en!)
+        haz = 0.85 * float(np.clip(1.0 - float(me["hp"]), 0.0, 1.0))
+        if float(me.get("regen_delay", 0.0)) > 0.40:
+            haz = max(haz, 0.35)
         if my_s < -0.30:
             haz = max(haz, 0.25)
-
-        loud = float(np.clip((1.0 - d_en / 15.0) * (0.3 if en["in_refuge"] else 1.0), 0.0, 1.0))
-        rel_en = en["pos"][[0, 2]] - me["pos"][[0, 2]]
-        ang_en = math.atan2(float(rel_en[0]), float(rel_en[1])) - float(me["gaze_ypd"][0])
+        for ent in vis_list:
+            if float(ent[8]) < -0.25:
+                dv_h = float(np.linalg.norm(ent[1:4] - me["pos"]))
+                if int(round(float(ent[0]))) >= 500:
+                    if dv_h < 3.6:
+                        haz = max(haz, float(np.clip((3.6 - dv_h) / 3.6, 0.0, 1.0)))
+                elif dv_h < 8.5:
+                    haz = max(haz, float(np.clip((8.5 - dv_h) / 8.5 * 0.80 * float(ent[9]), 0.0, 1.0)))
+        if (bool(en.get("just_fired", False)) or int(en.get("cd", 0)) >= 6) and loud >= 0.30:
+            haz = max(haz, float(np.clip((loud - 0.25) * 0.75, 0.0, 0.55)))
+        haz = float(np.clip(haz, 0.0, 1.0))
 
         proprio = np.zeros(PROPRIO_DIM, dtype=np.float32)
         proprio[0:3] = (me["pos"] - self.wmin) / self.span
@@ -702,8 +835,8 @@ class HeadToHeadTactical3DArena:
         proprio[7] = 1.0 if me["respawn_flag"] else 0.0
         proprio[8] = haz
         proprio[9] = float(vc) / float(MAX_ENTITIES)
-        proprio[10] = math.sin(ang_en)
-        proprio[11] = math.cos(ang_en)
+        proprio[10] = aud_sin
+        proprio[11] = aud_cos
         proprio[12] = loud
         proprio[13] = 0.95 if me["in_refuge"] else (0.75 if my_s > 0.28 else (0.10 if my_s < -0.28 else 0.45))
         proprio[14] = 0.96 if self.carrier_team == t_sign else float(np.clip(me["tank"] * 0.88, 0.0, 0.88))
@@ -1031,15 +1164,6 @@ class LocalCpuBrainAgentDriver:
         prop = project_pomdp_proprio(
             obs["proprio"], sp_out["believed_self_pos"], self.cfg.world_min, self.cfg.world_max, self.cfg
         )
-        mc24 = compute_universal_memory_compass(
-            sp_out["believed_self_pos"], sp_out["believed_entities"], sp_out["believed_count"], prop, self.hippo.field_map, self.profile
-        )
-        c_poses, c_verbs = propose_universal_3d_candidates(
-            sp_out["believed_self_pos"], sp_out["believed_entities"], sp_out["believed_count"], prop,
-            mc24, self.hippo.field_map, lead_xyz, sp_out["active_gaze_ypd"],
-            self.cfg.world_min, self.cfg.world_max, self.profile, goal_mode=self.last_goal_mode,
-        )
-
         tick = int(obs["physics_tick"])
         ep_done = bool(obs["episode_done"])
         respawn_ev = bool(sp_out["respawn_event_flag"])
@@ -1047,6 +1171,27 @@ class LocalCpuBrainAgentDriver:
         rid_gwt: Optional[int] = None
         need_first_tr = self.ep_cog_steps_done == 0 or (self.trainable and self.pending_tr is None)
         want_cog = (tick % max(1, cog_stride) == 0) or ep_done or respawn_ev or need_first_tr
+
+        cached_mc = getattr(self, "_cached_mc24", None)
+        cached_cp = getattr(self, "_cached_c_poses", None)
+        cached_cv = getattr(self, "_cached_c_verbs", None)
+        if want_cog or cached_mc is None or cached_cp is None or cached_cv is None:
+            mc24 = compute_universal_memory_compass(
+                sp_out["believed_self_pos"], sp_out["believed_entities"], sp_out["believed_count"], prop, self.hippo.field_map, self.profile
+            )
+            c_poses, c_verbs = propose_universal_3d_candidates(
+                sp_out["believed_self_pos"], sp_out["believed_entities"], sp_out["believed_count"], prop,
+                mc24, self.hippo.field_map, lead_xyz, sp_out["active_gaze_ypd"],
+                self.cfg.world_min, self.cfg.world_max, self.profile, goal_mode=self.last_goal_mode,
+            )
+            self._cached_mc24 = mc24
+            self._cached_c_poses = c_poses
+            self._cached_c_verbs = c_verbs
+        else:
+            mc24 = cached_mc
+            c_poses = cached_cp
+            c_verbs = cached_cv
+
         if want_cog:
             gwt_pay = {
                 "episode_id": ep_cur,
@@ -2240,6 +2385,7 @@ def run_arena_pbt_coordinator(
     parent_pid: int = 0,
     enable_sleep: bool = True,
     sleep_epochs: int = 6,
+    scaffold_anneal_end: Optional[float] = None,
     watch_stdin: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -2341,10 +2487,20 @@ def run_arena_pbt_coordinator(
                 except queue.Empty:
                     break
 
-            # Schedule Policy Mode (early DAgger -> Pure Neural autonomy)
+            # Schedule Policy Mode (early DAgger -> Pure Neural autonomy) & optional Scaffold Annealing (lambda_scaf: start -> end)
             gen_policy = "dagger" if (base_cfg.policy_mode == "dagger" and g <= max(1, generations // 2)) else (
                 "pure_neural" if base_cfg.policy_mode == "dagger" else base_cfg.policy_mode
             )
+            scaf_start = float(np.clip(getattr(base_cfg, "scaffold_prior_scale", 1.0), 0.0, 1.0))
+            if scaffold_anneal_end is not None and int(generations) > 1:
+                frac_g = float(g - 1) / float(max(1, int(generations) - 1))
+                gen_scaf_scale = float(np.clip(scaf_start + (float(scaffold_anneal_end) - scaf_start) * frac_g, 0.0, 1.0))
+            elif scaffold_anneal_end is not None:
+                gen_scaf_scale = float(np.clip(float(scaffold_anneal_end), 0.0, 1.0))
+            else:
+                gen_scaf_scale = scaf_start
+            for sg in slot_genes:
+                sg["scaffold_prior_scale"] = gen_scaf_scale
 
             opp_meta_for_slot: Dict[int, Tuple[str, float, Optional[LeagueSnapshotEntry], int]] = {}
             for i in range(pop_n):
@@ -2833,7 +2989,7 @@ def run_pbt_self_verification() -> bool:
       3. Strict `Barrier 1` (`torch` never imported in Coordinator or Arena Workers) & Zero Residual Files!
     """
     print("=" * 78)
-    print("  Arena PBT & Competitive Self-Play League v2.0 — Verification Suite")
+    print("  Arena PBT & Competitive Self-Play League v2.3.0 — Verification Suite")
     print("=" * 78)
 
     # 1. Verify Team-Perspective 180-degree Canonicalization Involution
@@ -2909,6 +3065,10 @@ def main() -> int:
     ap.add_argument("--ux-port", type=int, default=0)
     ap.add_argument("--sleep-consolidation", type=int, default=1)
     ap.add_argument("--sleep-epochs", type=int, default=6)
+    ap.add_argument("--online-update-interval", type=int, default=8)
+    ap.add_argument("--anneal-transitions", type=int, default=1600)
+    ap.add_argument("--scaffold-prior-scale", type=float, default=1.0)
+    ap.add_argument("--scaffold-anneal-end", type=float, default=-1.0, help="If >= 0, linearly anneal scaffold_prior_scale to this value across generations")
     ap.add_argument("--checkpoint-dir", type=str, default="checkpoints/user_runs")
     ap.add_argument("--init-weights", type=str, default="")
     ap.add_argument("--load-weights", type=str, default="")
@@ -2939,6 +3099,7 @@ def main() -> int:
         cfg = Brain3DConfig(
             task_profile=args.task_profile,
             policy_mode="pure_neural",
+            scaffold_prior_scale=float(np.clip(args.scaffold_prior_scale, 0.0, 1.0)),
             default_stage_id=args.stage_id,
             hippo_memory_mode=args.hippo_memory_mode,
             time_scale=args.time_scale,
@@ -2973,6 +3134,9 @@ def main() -> int:
     cfg = Brain3DConfig(
         task_profile=args.task_profile,
         policy_mode=args.policy_mode,
+        anneal_transitions=max(16, int(args.anneal_transitions)),
+        online_update_interval=max(1, int(args.online_update_interval)),
+        scaffold_prior_scale=float(np.clip(args.scaffold_prior_scale, 0.0, 1.0)),
         default_stage_id=args.stage_id,
         hippo_memory_mode=args.hippo_memory_mode,
         time_scale=args.time_scale,
@@ -2998,6 +3162,7 @@ def main() -> int:
         parent_pid=args.parent_pid,
         enable_sleep=bool(int(args.sleep_consolidation) != 0),
         sleep_epochs=int(args.sleep_epochs),
+        scaffold_anneal_end=(float(np.clip(args.scaffold_anneal_end, 0.0, 1.0)) if float(args.scaffold_anneal_end) >= 0.0 else None),
         watch_stdin=args.watch_stdin,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)

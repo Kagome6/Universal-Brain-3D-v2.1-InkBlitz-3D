@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-task_profiles_3d.py — Pluggable Task Semantic Ontology, Proprioception Contract & Optional DAgger Profiles
-===========================================================================================================
+task_profiles_3d.py — Pluggable Task Semantic Ontology, Proprioception Contract & Optional DAgger Profiles (v2.3.0)
+===================================================================================================================
 Separates game-specific affordance semantics, proprioception channel conventions, grounded Japanese
 telemetry vocabulary, and optional early-training DAgger scaffolds from the domain-agnostic brain core
 (`universal_brain_3d_core.py`).

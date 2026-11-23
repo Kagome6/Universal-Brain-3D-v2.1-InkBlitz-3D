@@ -1,17 +1,16 @@
 {
   "upload_type": "software",
-  "publication_date": "2026-11-21",
-  "title": "Universal Brain 3D v2.1 & InkBlitz 3D: Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments",
-  "version": "2.1.0",
+  "publication_date": "2026-11-24",
+  "title": "Universal Brain 3D v2.3.0 & InkBlitz 3D: Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments",
+  "version": "2.3.0",
   "creators": [
     {
       "name": "Alpha496",
       "affiliation": "Independent Researcher"
     }
   ],
-  "description": "<p><strong>Universal Brain 3D (v2.1)</strong> is a domain-agnostic, 60 Hz closed-loop functionalist cognitive architecture designed for partially observable, dynamic 3D environments, accompanied by the standalone <strong>InkBlitz 3D</strong> symmetric paint-territory and core-escort tactical arena.</p><p>Key components include: (1) an asynchronous 7-process lock-free SeqLock+CRC32 bus enforcing strict single-GPU isolation (<code>Barrier 1</code>); (2) a 4-layer allocentric cognitive field map with stationary-landmark EKF-SLAM and mid-episode respawn re-anchoring; (3) decoupled 6-DoF locomotion vs. cerebellar 3D ballistic lead-aim and basal ganglia <code>STN-SNr</code> timing control; (4) a 3-head multi-step categorical RSSM world model with counterfactual exposure de-confounding and live <code>UBWM</code> visual verification; (5) metastable Global Neuronal Workspace ignition with bidirectional top-down perceptual/hippocampal feedback; (6) Oizumi et al. (2016) lagged causal integrated information (<code>Phi_G</code>); (7) Plan-A motor-isolated grounded inner speech; and (8) single-GPU Population-Based Training (PBT) self-play with 4-stage offline sleep consolidation (<code>S-1..S-4</code>).</p>",
-  "access_right": "restricted",
-  "access_conditions": "Research preview archive establishing architectural priority. Access to source and executable bundles may be requested for academic and non-commercial research evaluation under GPL-3.0.",
+  "description": "<p><strong>Universal Brain 3D (v2.3.0)</strong> is a domain-agnostic, 60 Hz closed-loop functionalist cognitive architecture designed for partially observable, dynamic 3D environments, accompanied by the standalone two-stage <strong>InkBlitz 3D</strong> symmetric paint-territory and core-escort tactical arena (<code>Stage 1: Classic Citadel</code> and <code>Stage 2: Occluded Twin-Flank</code>).</p><p>Key components include: (1) an asynchronous 7-process lock-free SeqLock+CRC32 microkernel enforcing strict single-GPU isolation (<code>Barrier 1</code>) paired with Zero-PyTorch C++ <code>/O2</code> spatial raycast/ballistic kernels; (2) a 4-layer allocentric cognitive field map with stationary-landmark Kalman localization and mid-episode respawn re-anchoring; (3) decoupled 6-DoF locomotion vs. cerebellar 3D ballistic lead-aim and basal ganglia <code>STN-SNr</code> timing control with 0 ms emergency escape bypass; (4) a 3-head multi-step categorical RSSM world model with Dreamer-style perceptual encoder ownership, counterfactual exposure de-confounding, and live <code>UBWM</code> visual/depth verification; (5) metastable Global Neuronal Workspace ignition with straight-through zero-gated (<code>apply_zero_gate</code>) top-down perceptual/hippocampal feedback; (6) Oizumi et al. (2016) lagged causal integrated information (<code>Phi_G</code>); (7) Plan-A motor-isolated grounded inner speech; and (8) single-GPU Population-Based Training (PBT) self-play with progressive <code>Scaffold Annealing</code> (<code>scaffold_prior_scale: 1.0 -&gt; 0.0</code>) and 4-stage offline sleep consolidation (<code>S-1..S-4</code>).</p>",
+  "access_right": "open",
   "license": "GPL-3.0-only",
   "keywords": [
     "Whole-Brain Architecture",
@@ -23,5 +22,5 @@
     "Population-Based Training",
     "3D Spatial Cognition"
   ],
-  "notes": "Developed by Alpha496 (Independent Researcher). Includes deterministic 7-stage headless self-verification suite (--mode verify_all) requiring only Python, NumPy, and PyTorch, plus optional Unity 6 binary wire integration (InkBlitz 3D)."
+  "notes": "Developed by Alpha496 (Independent Researcher). Includes deterministic 7-stage headless self-verification suite (--mode verify_all) requiring only Python, NumPy, and PyTorch, plus Unity 6 binary wire integration (InkBlitz 3D Stage 1 & Stage 2)."
 }

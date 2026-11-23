@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_spatial_timing.py — 4-Layer Allocentric Field Map, Landmark EKF-SLAM,
-Ballistic Cerebellum, Authoritative 8-Candidate Proposal & Basal Ganglia Gate (P3)
-==================================================================================
+Ballistic Cerebellum, Authoritative 8-Candidate Proposal & Basal Ganglia Gate (P3, v2.3.0)
+==========================================================================================
 Barrier 1 Guarantee: Strictly Zero-PyTorch (`"torch" not in sys.modules`).
 License: GNU General Public License v3.0 (GPL-3.0)
 """
@@ -27,6 +27,18 @@ from brain3d_config_ipc import (
     _resolve_active_fovea_patch,
     _resolve_active_ventral_patch,
 )
+import ctypes as _ctypes
+try:
+    from native_accel.fast_kernels_bridge import (
+        NATIVE_KERNELS_AVAILABLE as _NATIVE_OK,
+        f32_ptr as _f32_ptr,
+        get_native_lib as _get_native_lib,
+        u8_ptr as _u8_ptr,
+    )
+    _NATIVE_LIB = _get_native_lib() if _NATIVE_OK else None
+except Exception:
+    _NATIVE_OK = False
+    _NATIVE_LIB = None
 
 # ==============================================================================
 # 5. Upgraded Spatial Cognition v2: 4-Layer Dynamic Field Map, Landmark EKF-SLAM,
@@ -268,6 +280,35 @@ class MultiLayerCognitiveFieldMap3D:
         """
         # 1. Temporal staleness decay on unobserved surface & visit freshness
         self._map_step_counter += 1
+        if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
+            surf_posture = float(proprio[PROPRIO_IDX_SURFACE_POSTURE]) if proprio.shape[0] > PROPRIO_IDX_SURFACE_POSTURE else 0.45
+            fov_c = np.ascontiguousarray(fovea_patch, dtype=np.float32)
+            vent_ptr = _f32_ptr(np.ascontiguousarray(ventral_patch, dtype=np.float32)) if ventral_patch is not None else None
+            unc_ptr = _f32_ptr(np.ascontiguousarray(epistemic_uncert_16, dtype=np.float32)) if epistemic_uncert_16 is not None else None
+            out_r2 = np.zeros(2, dtype=np.float32)
+            _NATIVE_LIB.ub3d_integrate_first_person_frame(
+                _u8_ptr(self.occ_state),
+                _f32_ptr(self.wall_score),
+                _f32_ptr(self.surface_map),
+                _f32_ptr(self.surface_obs_age),
+                _f32_ptr(self.elev_map),
+                _f32_ptr(self.visit_freshness),
+                _f32_ptr(self.dwell_saturation),
+                _f32_ptr(self.strategic_hazard_scar),
+                int(self.grid_n),
+                float(self.wmin[0]), float(self.wmin[1]), float(self.wmin[2]),
+                float(self.cell_w), float(self.cell_d),
+                float(self.surface_decay_per_sec),
+                float(believed_pos[0]), float(believed_pos[1]), float(believed_pos[2]),
+                float(gaze_ypd[0]), float(gaze_ypd[1]),
+                float(surf_posture),
+                float(math.tan(math.radians(float(fovea_half_angle_deg)))),
+                float(max_range_m), float(dt),
+                _f32_ptr(fov_c), vent_ptr, unc_ptr,
+                _f32_ptr(out_r2),
+            )
+            return float(out_r2[0]), float(out_r2[1])
+
         self.surface_obs_age = np.minimum(99.0, self.surface_obs_age + float(dt))
         if self.surface_decay_per_sec > 0.0:
             stale_mask = self.surface_obs_age > 1.0
@@ -411,6 +452,34 @@ class MultiLayerCognitiveFieldMap3D:
         Returns `(unit_dir_xz, norm_dist, valid)`.
         """
         ego_iz, ego_ix = self.world_to_cell(float(ego_xz[0]), float(ego_xz[1]))
+        if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
+            ccz, ccx = self._committed_frontier_cell if self._committed_frontier_cell is not None else (-1, -1)
+            out_bz = _ctypes.c_int(-1)
+            out_bx = _ctypes.c_int(-1)
+            out_nt = _ctypes.c_int(0)
+            rc = _NATIVE_LIB.ub3d_select_frontier_cell(
+                _u8_ptr(self.occ_state),
+                _f32_ptr(self.surface_map),
+                _f32_ptr(self.visit_freshness),
+                _f32_ptr(self._strategic_lane_mult_grid),
+                _f32_ptr(self.dwell_saturation),
+                _f32_ptr(self.strategic_hazard_scar),
+                int(self.grid_n),
+                int(ego_iz), int(ego_ix),
+                float(unknown_weight), float(turf_weight),
+                int(ccz), int(ccx), int(self._committed_frontier_ticks),
+                _ctypes.byref(out_bz), _ctypes.byref(out_bx), _ctypes.byref(out_nt),
+            )
+            if rc == 0:
+                return np.array([0.0, 1.0], dtype=np.float32), 0.35, True
+            if rc == 1:
+                return np.array([0.0, 1.0], dtype=np.float32), 0.25, True
+            bz, bx = int(out_bz.value), int(out_bx.value)
+            self._committed_frontier_cell = (bz, bx)
+            self._committed_frontier_ticks = int(out_nt.value)
+            tgt_xz = self.cell_to_world_xz(bz, bx)
+            return self.find_tactical_next_step(ego_xz, tgt_xz)
+
         free_mask = self.occ_state == self.FREE
         if not np.any(free_mask):
             return np.array([0.0, 1.0], dtype=np.float32), 0.35, True
@@ -527,6 +596,36 @@ class MultiLayerCognitiveFieldMap3D:
                 step_v = direct
                 sd = direct_d
             return (step_v / max(1e-4, sd)).astype(np.float32), norm_cached, True
+
+        if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
+            out_dir = np.zeros(2, dtype=np.float32)
+            out_wp = np.zeros(2, dtype=np.float32)
+            out_nr = _ctypes.c_float(0.0)
+            out_has_wp = _ctypes.c_int(0)
+            ok_c = _NATIVE_LIB.ub3d_astar_tactical_step(
+                _u8_ptr(self.occ_state),
+                _f32_ptr(self.elev_map),
+                _f32_ptr(self.surface_map),
+                _f32_ptr(self.strategic_hazard_scar),
+                int(self.grid_n),
+                int(sz), int(sx),
+                int(gz), int(gx),
+                int(tz), int(tx),
+                float(self.cell_w), float(self.cell_d),
+                float(self.wmin[0]), float(self.wmin[2]),
+                float(start_xz[0]), float(start_xz[1]),
+                float(direct[0]), float(direct[1]), float(direct_d), float(max_diag),
+                _f32_ptr(out_dir),
+                _ctypes.byref(out_nr),
+                _f32_ptr(out_wp),
+                _ctypes.byref(out_has_wp),
+            )
+            if ok_c:
+                if len(self._route_cache) >= 32:
+                    self._route_cache.clear()
+                nr_val = float(out_nr.value)
+                self._route_cache[ckey] = (self._map_step_counter, out_wp.copy() if out_has_wp.value else None, nr_val)
+                return out_dir, nr_val, True
 
         n = self.grid_n
         nn = n * n
@@ -748,6 +847,15 @@ class MultiLayerCognitiveFieldMap3D:
         `D3QN` / `RSSM` perceive enemy-ink blockades along each route without tensor shape changes).
         """
         cz, cx = self.world_to_cell(float(ego_xz[0]), float(ego_xz[1]))
+        if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
+            clr = np.ones(4, dtype=np.float32)
+            surf_adv = np.full(4, 0.5, dtype=np.float32)
+            _NATIVE_LIB.ub3d_directional_clearance_and_surface(
+                _u8_ptr(self.occ_state), _f32_ptr(self.surface_map),
+                int(self.grid_n), int(cz), int(cx), _f32_ptr(clr), _f32_ptr(surf_adv),
+            )
+            return clr, surf_adv
+
         dirs_4 = ((1, 0), (0, 1), (-1, 0), (0, -1))  # +Z(N), +X(E), -Z(S), -X(W)
         clr = np.ones(4, dtype=np.float32)
         surf_adv = np.full(4, 0.5, dtype=np.float32)
@@ -788,6 +896,19 @@ class MultiLayerCognitiveFieldMap3D:
 
     def smooth_local_step(self, ego_xz: np.ndarray, desired_xz: np.ndarray) -> np.ndarray:
         """Apply soft wall-clearance repulsion so proposed candidate targets never jam into obstacle corners."""
+        if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
+            out_xz = np.zeros(2, dtype=np.float32)
+            _NATIVE_LIB.ub3d_smooth_local_step(
+                _u8_ptr(self.occ_state), int(self.grid_n),
+                float(self.cell_w), float(self.cell_d),
+                float(self.wmin[0]), float(self.wmin[2]),
+                float(self.wmax[0]), float(self.wmax[2]),
+                float(ego_xz[0]), float(ego_xz[1]),
+                float(desired_xz[0]), float(desired_xz[1]),
+                _f32_ptr(out_xz),
+            )
+            return out_xz
+
         out_xz = np.clip(
             np.asarray(desired_xz, dtype=np.float32).copy(),
             self.wmin[[0, 2]] + 0.65,
@@ -2099,7 +2220,14 @@ class BasalGanglia3DTimingEngineV2:
         go_drive = float(np.clip(0.55 + 0.25 * math.tanh(0.35 * q_chosen) + 0.45 * survival_prob + 0.35 * scene_opportunity_prob, 0.15, 2.20))
 
         crossfire_f = float(local_kinetic_risk) * (1.25 if in_refuge else 0.40)
-        lead_sync_f = float(np.clip(0.65 - scene_opportunity_prob, 0.0, 0.65)) if chosen_verb in (VERB_RELEASE_PLACE, VERB_IMPULSE_PUSH) else 0.0
+        has_ballistic_target = (int(chosen_cand_idx) != int(CAND_IDX_FRONTIER_TURF)) and (
+            float(scene_opportunity_prob) > 0.16 or float(local_kinetic_risk) > 0.05
+        )
+        lead_sync_f = (
+            float(np.clip(0.65 - scene_opportunity_prob, 0.0, 0.65))
+            if (chosen_verb in (VERB_RELEASE_PLACE, VERB_IMPULSE_PUSH) and has_ballistic_target)
+            else 0.0
+        )
         s1_gwt_conf = 0.45 if (chosen_cand_idx != s1_fast_cand_idx and self.turn_wait_ms < 120.0) else 0.0
         meta_surp_conf = (
             0.35 * float(np.clip(float(self_surprise) - 0.16, 0.0, 0.85))

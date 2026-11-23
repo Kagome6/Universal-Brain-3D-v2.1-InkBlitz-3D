@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_cognitive_procs.py — Homeostasis, Information Geometry (`Phi_G` / Fisher-Rao),
-System1Reflex (P4), ConsciousGWT (P5), LanguageCortex (P6) & TelemetryConsole (P7)
-======================================================================================
+System1Reflex (P4), ConsciousGWT (P5), LanguageCortex (P6) & TelemetryConsole (P7) [v2.3.0]
+===========================================================================================
 Barrier 1 Guarantee: Strictly Zero-PyTorch (`"torch" not in sys.modules`).
 License: GNU General Public License v3.0 (GPL-3.0)
 """
@@ -464,6 +464,7 @@ def compute_gene_modulated_mip_and_fr(
         and (float(mc[MC_OBJ_DX]) * float(mc[MC_THR_DX]) + float(mc[MC_OBJ_DZ]) * float(mc[MC_THR_DZ])) > 0.50
     )
     flank_gain = float(np.clip(getattr(cfg, "stn_stealth_gain", 1.0), 0.70, 1.50))
+    scaf_w = float(np.clip(getattr(cfg, "scaffold_prior_scale", 1.0), 0.0, 1.0))
 
     for m in range(NUM_CANDIDATES):
         vb = int(verbs[m])
@@ -483,13 +484,17 @@ def compute_gene_modulated_mip_and_fr(
             or (float(mc[MC_COV_VALID]) > 0.5 and dot_cov > 0.25 and dn > 0.03)
         )
 
-        # Gentle continuous intrinsic drive (zero acoustic-boundary bang-bang jump!)
+        # Gentle continuous intrinsic drive (`scaf_w` anneals hand-crafted L2 compass priors -> 0.0 in v2.3 Autonomous Mode,
+        # while learned RSSM `adv[m]` and physical SafetyShield invariants remain active!)
         if not exposed_threat:
-            q_star[m] += 0.16 * curiosity_gain * max(0.0, dot_front) + 0.18 * objective_gain * max(0.0, dot_obj) + 0.20 * (float(adv[m]) - 0.5)
-            if frontal_block and vb != VERB_IDLE_OBSERVE and dn > 0.05 and dot_thr < 0.30 and (m == CAND_IDX_FLANK_DETOUR or dot_obj > -0.15):
-                q_star[m] += 0.15 * flank_gain * (1.0 - max(0.0, dot_thr))
+            q_star[m] += scaf_w * (
+                0.16 * curiosity_gain * max(0.0, dot_front)
+                + 0.18 * objective_gain * max(0.0, dot_obj)
+            ) + 0.20 * (float(adv[m]) - 0.5)
+            if scaf_w > 0.0 and frontal_block and vb != VERB_IDLE_OBSERVE and dn > 0.05 and dot_thr < 0.30 and (m == CAND_IDX_FLANK_DETOUR or dot_obj > -0.15):
+                q_star[m] += scaf_w * 0.15 * flank_gain * (1.0 - max(0.0, dot_thr))
         elif is_escape_cand and shield_on:
-            q_star[m] += 0.25 + 0.25 * max(0.0, -dot_thr) + 0.20 * max(0.0, dot_cov)
+            q_star[m] += 0.20 + scaf_w * (0.05 + 0.25 * max(0.0, -dot_thr) + 0.20 * max(0.0, dot_cov))
 
         # Short-term synaptic depression on unrewarded repetitive actions & spatial stagnation
         if hab is not None:
@@ -498,7 +503,7 @@ def compute_gene_modulated_mip_and_fr(
             if vb == VERB_IDLE_OBSERVE or dn < 0.05:
                 q_star[m] -= 1.15 * stag
             elif dn >= 0.08:
-                q_star[m] += 0.30 * stag * max(0.25, max(dot_obj, dot_front))
+                q_star[m] += 0.30 * stag * (scaf_w * max(0.25, max(dot_obj, dot_front)) + (1.0 - scaf_w) * 0.35)
 
         # Centralized SafetyShield: Anti-Freeze Veto in open space under threat + RSSM Survival Veto
         if shield_on and exposed_threat and vb == VERB_IDLE_OBSERVE:
