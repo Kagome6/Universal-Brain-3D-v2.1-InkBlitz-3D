@@ -2,7 +2,7 @@
 
 **Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments**
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CITATION.cff)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](CITATION.cff)
 [![License: GPL v3](https://img.shields.io/badge/Python_Brain-GPLv3-blue.svg)](LICENSE)
 [![License: MIT](https://img.shields.io/badge/Unity_Arena-MIT-green.svg)](LICENSE_UNITY_MIT.txt)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](requirements.txt)
