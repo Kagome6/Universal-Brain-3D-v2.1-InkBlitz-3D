@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-arena_pbt_trainer.py — 1-GPU Parallel Multi-Arena PBT & Competitive Self-Play League Trainer (v2.0)
+arena_pbt_trainer.py — 1-GPU Parallel Multi-Arena PBT & Competitive Self-Play League Trainer (v2.2)
 ====================================================================================================
 Encapsulates simultaneous multi-environment execution (`builtin_3d` parallel worker processes OR
 `unity_tcp` multi-port simultaneous arenas inside a single Unity instance) + Population-Based
@@ -387,11 +387,14 @@ class HeadToHeadTactical3DArena:
         self.carrier_team = 0
         self.objective_progress_a = 0.50
 
+        # Exact 180-deg involution-symmetric spawn offset: (+x0, z_south) <-> (-x0, -z_south)
+        x0 = float(self.rng.uniform(-2.0, 2.0))
         for t_sign in (+1, -1):
             z_sp = float(self.wmin[2] + 3.5) if t_sign > 0 else float(self.wmax[2] - 3.5)
+            x_sp = x0 if t_sign > 0 else -x0
             yaw0 = 0.0 if t_sign > 0 else math.pi
             self.agents[t_sign] = {
-                "pos": np.array([float(self.rng.uniform(-2.0, 2.0)), 1.5, z_sp], dtype=np.float32),
+                "pos": np.array([x_sp, 1.5, z_sp], dtype=np.float32),
                 "vel": np.zeros(3, dtype=np.float32),
                 "gaze_ypd": np.array([yaw0, -0.15, 6.0], dtype=np.float32),
                 "aim_yp": np.array([yaw0, -0.15], dtype=np.float32),
@@ -402,6 +405,7 @@ class HeadToHeadTactical3DArena:
                 "submerge_lock": 0.0,
                 "submerged": False,
                 "in_refuge": False,
+                "just_fired": False,
                 "cd": 0,
                 "invuln": 0,
                 "respawn_flag": False,
@@ -437,6 +441,7 @@ class HeadToHeadTactical3DArena:
         for t_sign in (+1, -1):
             ag = self.agents[t_sign]
             ag["respawn_flag"] = False
+            ag["just_fired"] = False
             if ag["cd"] > 0:
                 ag["cd"] -= 1
             if ag["invuln"] > 0:
@@ -497,6 +502,7 @@ class HeadToHeadTactical3DArena:
             if commit_ok and ag["cd"] == 0:
                 if verb in (VERB_RELEASE_PLACE, VERB_IMPULSE_PUSH) and ag["tank"] >= self.profile.min_resource_to_fire and self.carrier_team != t_sign:
                     ag["tank"] = max(0.0, ag["tank"] - (0.14 if verb == VERB_RELEASE_PLACE else 0.24))
+                    ag["just_fired"] = True
                     sy, cy = math.sin(float(ag["aim_yp"][0])), math.cos(float(ag["aim_yp"][0]))
                     cp, sp = max(0.25, math.cos(float(ag["aim_yp"][1]))), math.sin(float(ag["aim_yp"][1]))
                     dv = np.array([sy * cp, sp, cy * cp], dtype=np.float32)
@@ -505,7 +511,7 @@ class HeadToHeadTactical3DArena:
                         "pos": ag["pos"].copy() + dv * 0.8,
                         "vel": dv * float(self.profile.projectile_speed_mps),
                         "team": t_sign,
-                        "ttl": 20,
+                        "ttl": 32,
                         "splash": 1.65 if verb == VERB_RELEASE_PLACE else 2.25,
                     })
                     fl = self._paint_disc(float(ag["pos"][0] + dv[0] * 2.0), float(ag["pos"][2] + dv[2] * 2.0), 1.3, t_sign)
@@ -513,11 +519,20 @@ class HeadToHeadTactical3DArena:
                     ag["cd"] = 8
                     ag["epoch"] += 1
 
-            if self.carrier_team == 0 and float(np.linalg.norm(ag["pos"][[0, 2]] - self.objective_pos[[0, 2]])) <= 1.45:
-                self.carrier_team = t_sign
-                rews[t_sign] += 3.0
-                rews[-t_sign] -= 0.80
-                ag["epoch"] += 1
+        # Order-independent simultaneous neutral objective pickup (preserves exact 180-deg symmetry!)
+        if self.carrier_team == 0:
+            da_obj = float(np.linalg.norm(self.agents[+1]["pos"][[0, 2]] - self.objective_pos[[0, 2]]))
+            db_obj = float(np.linalg.norm(self.agents[-1]["pos"][[0, 2]] - self.objective_pos[[0, 2]]))
+            if da_obj <= 1.45 and (db_obj > 1.45 or da_obj < db_obj - 1e-6):
+                self.carrier_team = +1
+                rews[+1] += 3.0
+                rews[-1] -= 0.80
+                self.agents[+1]["epoch"] += 1
+            elif db_obj <= 1.45 and (da_obj > 1.45 or db_obj < da_obj - 1e-6):
+                self.carrier_team = -1
+                rews[-1] += 3.0
+                rews[+1] -= 0.80
+                self.agents[-1]["epoch"] += 1
 
         # Update carried objective & knockout check
         if self.carrier_team != 0:
@@ -537,10 +552,13 @@ class HeadToHeadTactical3DArena:
                 ep_done = True
                 winner = self.carrier_team
 
-        # Advance projectiles
+        # Advance ballistic projectiles with exact parabolic gravity (`profile.projectile_gravity_mps2`, matching Unity 6!)
+        g_proj = float(getattr(self.profile, "projectile_gravity_mps2", 0.0))
         alive_p = []
+        pending_splats = []
         for pr in self.projectiles:
-            pr["pos"] = pr["pos"] + pr["vel"] * dt
+            pr["pos"] = pr["pos"] + pr["vel"] * dt + np.array([0.0, -0.5 * g_proj * dt * dt, 0.0], dtype=np.float32)
+            pr["vel"][1] = float(pr["vel"][1]) - g_proj * dt
             pr["ttl"] -= 1
             hit = False
             if pr["pos"][1] <= float(self.wmin[1]) + 0.15 or pr["ttl"] <= 0:
@@ -563,24 +581,28 @@ class HeadToHeadTactical3DArena:
                     rews[opp_sign] -= 0.85
                     self._paint_disc(float(opp_ag["pos"][0]), float(opp_ag["pos"][2]), 1.6, int(pr["team"]))
                     hit = True
-                    if opp_ag["hp"] <= 0.0:
-                        rews[int(pr["team"])] += 3.5
-                        rews[opp_sign] -= 3.0
-                        if self.carrier_team == opp_sign:
-                            self.carrier_team = 0
-                            self.objective_pos = np.array([float(opp_ag["pos"][0]), 1.1, float(opp_ag["pos"][2])], dtype=np.float32)
-                        z_sp = float(self.wmin[2] + 3.2) if opp_sign > 0 else float(self.wmax[2] - 3.2)
-                        opp_ag["pos"] = np.array([float(self.rng.uniform(-2.0, 2.0)), 1.5, z_sp], dtype=np.float32)
-                        opp_ag["vel"].fill(0.0)
-                        opp_ag["hp"] = 1.0
-                        opp_ag["regen_delay"] = 0.0
-                        opp_ag["tank"] = 1.0
-                        opp_ag["invuln"] = 18
-                        opp_ag["respawn_flag"] = True
-                        opp_ag["epoch"] += 1
-                        self._paint_disc(float(opp_ag["pos"][0]), z_sp, 2.0, opp_sign)
+                    if opp_ag["hp"] <= 0.0 and opp_sign not in pending_splats:
+                        pending_splats.append(opp_sign)
             if not hit:
                 alive_p.append(pr)
+        for opp_sign in pending_splats:
+            opp_ag = self.agents[opp_sign]
+            rews[-opp_sign] += 3.5
+            rews[opp_sign] -= 3.0
+            if self.carrier_team == opp_sign:
+                self.carrier_team = 0
+                self.objective_pos = np.array([float(opp_ag["pos"][0]), 1.1, float(opp_ag["pos"][2])], dtype=np.float32)
+            z_sp = float(self.wmin[2] + 3.2) if opp_sign > 0 else float(self.wmax[2] - 3.2)
+            rx_sp = float(self.rng.uniform(-2.0, 2.0))
+            opp_ag["pos"] = np.array([rx_sp if opp_sign > 0 else -rx_sp, 1.5, z_sp], dtype=np.float32)
+            opp_ag["vel"].fill(0.0)
+            opp_ag["hp"] = 1.0
+            opp_ag["regen_delay"] = 0.0
+            opp_ag["tank"] = 1.0
+            opp_ag["invuln"] = 18
+            opp_ag["respawn_flag"] = True
+            opp_ag["epoch"] += 1
+            self._paint_disc(float(opp_ag["pos"][0]), z_sp, 2.0, opp_sign)
         self.projectiles = alive_p[-24:]
 
         if self.ticks_in_ep >= 540 and not ep_done:
@@ -636,6 +658,9 @@ class HeadToHeadTactical3DArena:
         if (not en["in_refuge"]) or d_en < 3.6:
             etag = SemanticTag.ENEMY_CARRIER_OR_SHOT if self.carrier_team == -t_sign else SemanticTag.OPPONENT_AGENT
             _add(201, en["pos"], en["vel"], 0.75, etag, True)
+        for pidx, pr in enumerate(self.projectiles[:6]):
+            if int(pr["team"]) == -t_sign:
+                _add(500 + pidx, pr["pos"], pr["vel"], 0.35, SemanticTag.ENEMY_CARRIER_OR_SHOT, True)
 
         vis_arr = np.zeros((MAX_ENTITIES, ENTITY_DIM), dtype=np.float32)
         vc = min(MAX_ENTITIES, len(vis_list))
@@ -687,13 +712,43 @@ class HeadToHeadTactical3DArena:
 
         iz_m, ix_m = self._world_to_cell(float(me["pos"][0]), float(me["pos"][2]))
         my_s = float(self.surface_grid[iz_m, ix_m]) * float(t_sign)
-        haz = float(np.clip((8.0 - d_en) / 8.0 * (0.0 if self._is_occluded(me["pos"], en["pos"]) else 0.80), 0.0, 1.0))
+
+        # Strict 1st-person event-gated acoustic & somatic/visual hazard model (matching Unity 6 ArenaAudioSystem.cs — ZERO wallhack/bearing leak!)
+        en_spd = float(np.linalg.norm(en["vel"][[0, 2]]))
+        occ_atten = 0.52 if self._is_occluded(me["pos"], en["pos"]) else 1.0
+        raw_loud = 0.0
+        if bool(en.get("just_fired", False)) or int(en.get("cd", 0)) >= 6:
+            raw_loud = max(raw_loud, 0.92 * max(0.0, 1.0 - d_en / 15.0))
+        elif (not en["in_refuge"]) and (not bool(en.get("submerged", False))) and en_spd > 0.55:
+            raw_loud = max(raw_loud, 0.62 * max(0.0, 1.0 - d_en / 11.0))
+        elif bool(en.get("submerged", False)) and en_spd > 0.80:
+            raw_loud = max(raw_loud, 0.38 * max(0.0, 1.0 - d_en / 4.2))
+        loud = float(np.clip(raw_loud * occ_atten, 0.0, 1.0))
+        if loud >= 0.05 and d_en > 1e-4:
+            rel_en = en["pos"][[0, 2]] - me["pos"][[0, 2]]
+            ang_en = math.atan2(float(rel_en[0]), float(rel_en[1])) - float(me["gaze_ypd"][0])
+            aud_sin, aud_cos = math.sin(ang_en), math.cos(ang_en)
+        else:
+            loud = 0.0
+            aud_sin, aud_cos = 0.0, 1.0
+
+        # Somatic + 1st-person visual/acoustic hazard only (never uses unseen/silent true distance d_en!)
+        haz = 0.85 * float(np.clip(1.0 - float(me["hp"]), 0.0, 1.0))
+        if float(me.get("regen_delay", 0.0)) > 0.40:
+            haz = max(haz, 0.35)
         if my_s < -0.30:
             haz = max(haz, 0.25)
-
-        loud = float(np.clip((1.0 - d_en / 15.0) * (0.3 if en["in_refuge"] else 1.0), 0.0, 1.0))
-        rel_en = en["pos"][[0, 2]] - me["pos"][[0, 2]]
-        ang_en = math.atan2(float(rel_en[0]), float(rel_en[1])) - float(me["gaze_ypd"][0])
+        for ent in vis_list:
+            if float(ent[8]) < -0.25:
+                dv_h = float(np.linalg.norm(ent[1:4] - me["pos"]))
+                if int(round(float(ent[0]))) >= 500:
+                    if dv_h < 3.6:
+                        haz = max(haz, float(np.clip((3.6 - dv_h) / 3.6, 0.0, 1.0)))
+                elif dv_h < 8.5:
+                    haz = max(haz, float(np.clip((8.5 - dv_h) / 8.5 * 0.80 * float(ent[9]), 0.0, 1.0)))
+        if (bool(en.get("just_fired", False)) or int(en.get("cd", 0)) >= 6) and loud >= 0.30:
+            haz = max(haz, float(np.clip((loud - 0.25) * 0.75, 0.0, 0.55)))
+        haz = float(np.clip(haz, 0.0, 1.0))
 
         proprio = np.zeros(PROPRIO_DIM, dtype=np.float32)
         proprio[0:3] = (me["pos"] - self.wmin) / self.span
@@ -702,8 +757,8 @@ class HeadToHeadTactical3DArena:
         proprio[7] = 1.0 if me["respawn_flag"] else 0.0
         proprio[8] = haz
         proprio[9] = float(vc) / float(MAX_ENTITIES)
-        proprio[10] = math.sin(ang_en)
-        proprio[11] = math.cos(ang_en)
+        proprio[10] = aud_sin
+        proprio[11] = aud_cos
         proprio[12] = loud
         proprio[13] = 0.95 if me["in_refuge"] else (0.75 if my_s > 0.28 else (0.10 if my_s < -0.28 else 0.45))
         proprio[14] = 0.96 if self.carrier_team == t_sign else float(np.clip(me["tank"] * 0.88, 0.0, 0.88))
@@ -2833,7 +2888,7 @@ def run_pbt_self_verification() -> bool:
       3. Strict `Barrier 1` (`torch` never imported in Coordinator or Arena Workers) & Zero Residual Files!
     """
     print("=" * 78)
-    print("  Arena PBT & Competitive Self-Play League v2.0 — Verification Suite")
+    print("  Arena PBT & Competitive Self-Play League v2.2 — Verification Suite")
     print("=" * 78)
 
     # 1. Verify Team-Perspective 180-degree Canonicalization Involution

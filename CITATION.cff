@@ -1,10 +1,9 @@
 cff-version: 1.2.0
 message: "If you use or reference this software architecture in your research, please cite it using the metadata below."
 type: software
-title: "Universal Brain 3D v2.1 & InkBlitz 3D: Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments"
-version: 2.1.0
-date-released: "2026-11-21"
-doi: https://doi.org/10.5281/zenodo.24417716
+title: "Universal Brain 3D v2.2 & InkBlitz 3D: Closed-Loop Asynchronous Functionalist Whole-Brain Cognitive Architecture for Partially Observable 3D Environments"
+version: 2.2.0
+date-released: "2026-11-23"
 license: GPL-3.0-only
 authors:
   - name: "Alpha496"
@@ -21,7 +20,7 @@ keywords:
   - spatial-cognition
   - unity3d
 abstract: >-
-  A domain-agnostic, 60 Hz closed-loop functionalist whole-brain cognitive engine (v2.1)
+  A domain-agnostic, 60 Hz closed-loop functionalist whole-brain cognitive engine (v2.2)
   paired with InkBlitz 3D, a symmetric 3D paint-territory and core-escort research simulator.
   Integrates a 7-process lock-free SeqLock+CRC32 architecture (strict single-GPU Barrier 1),
   4-layer allocentric hippocampal spatial memory with stationary-landmark EKF-SLAM,

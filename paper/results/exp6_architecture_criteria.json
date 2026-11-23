@@ -1,0 +1,598 @@
+{
+  "checkpoint_used": "checkpoints/remediated_v22/seed_2026/pbt_best_champion.pt",
+  "criterion_1_replaceability_swaps": {
+    "S1_rssm_mpc_no_d3qn": {
+      "win_rate_pct": 25.0,
+      "ci95_pct": [
+        12.5,
+        37.5
+      ],
+      "w_l_t": "2-14-8",
+      "sign_p": 0.00418,
+      "wilcoxon_p": 0.00418,
+      "dz": -0.758,
+      "max_prog_pct": 55.9,
+      "kills_per_game": 0.83,
+      "deaths_per_game": 0.52,
+      "turf_share_pct": 17.59,
+      "shots_per_game": 18.9,
+      "mean_stagnation": 0.456,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 261.64
+    },
+    "S2_gwt_uniform_pool": {
+      "win_rate_pct": 54.17,
+      "ci95_pct": [
+        39.6,
+        68.8
+      ],
+      "w_l_t": "7-5-12",
+      "sign_p": 0.77441,
+      "wilcoxon_p": 0.77441,
+      "dz": 0.116,
+      "max_prog_pct": 57.11,
+      "kills_per_game": 0.9,
+      "deaths_per_game": 0.77,
+      "turf_share_pct": 16.84,
+      "shots_per_game": 18.6,
+      "mean_stagnation": 0.27,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 294.96
+    },
+    "S3_gwt_hard_wta": {
+      "win_rate_pct": 54.17,
+      "ci95_pct": [
+        43.8,
+        64.6
+      ],
+      "w_l_t": "5-3-16",
+      "sign_p": 0.72656,
+      "wilcoxon_p": 0.72656,
+      "dz": 0.143,
+      "max_prog_pct": 57.53,
+      "kills_per_game": 0.73,
+      "deaths_per_game": 0.75,
+      "turf_share_pct": 17.16,
+      "shots_per_game": 18.2,
+      "mean_stagnation": 0.27,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 296.18
+    },
+    "S4_slam_drift_only": {
+      "win_rate_pct": 48.96,
+      "ci95_pct": [
+        35.4,
+        62.5
+      ],
+      "w_l_t": "5-6-13",
+      "sign_p": 1.0,
+      "wilcoxon_p": 1.0,
+      "dz": -0.031,
+      "max_prog_pct": 57.11,
+      "kills_per_game": 0.79,
+      "deaths_per_game": 0.88,
+      "turf_share_pct": 16.27,
+      "shots_per_game": 18.4,
+      "mean_stagnation": 0.279,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 266.15
+    },
+    "S5_bg_cautious": {
+      "win_rate_pct": 52.08,
+      "ci95_pct": [
+        39.6,
+        64.6
+      ],
+      "w_l_t": "5-4-15",
+      "sign_p": 1.0,
+      "wilcoxon_p": 1.0,
+      "dz": 0.067,
+      "max_prog_pct": 57.5,
+      "kills_per_game": 0.83,
+      "deaths_per_game": 0.77,
+      "turf_share_pct": 16.69,
+      "shots_per_game": 18.1,
+      "mean_stagnation": 0.293,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 267.87
+    }
+  },
+  "criterion_2a_gradient_conflict": {
+    "loss_names": [
+      "L_td",
+      "L_speed",
+      "L_rssm",
+      "L_cf",
+      "L_vis",
+      "L_slot",
+      "L_strat",
+      "L_self",
+      "L_lang"
+    ],
+    "mean_grad_l2_norm": {
+      "L_td": 0.31933,
+      "L_speed": 0.00701,
+      "L_rssm": 1.62142,
+      "L_cf": 2.59264,
+      "L_vis": 0.03937,
+      "L_slot": 0.04077,
+      "L_strat": 3.65532,
+      "L_self": 0.12708,
+      "L_lang": 0.33759
+    },
+    "per_module_grad_norm": {
+      "L_td": {
+        "foveal_enc": 0.004,
+        "slot_cortex": 0.00073,
+        "topo_adapter": 0.0038,
+        "gwt": 0.01028,
+        "strat_tf": 0.00163,
+        "d3qn": 0.3191
+      },
+      "L_speed": {
+        "foveal_enc": 5e-05,
+        "slot_cortex": 1e-05,
+        "topo_adapter": 4e-05,
+        "gwt": 0.00018,
+        "strat_tf": 3e-05,
+        "d3qn": 0.007
+      },
+      "L_rssm": {
+        "foveal_enc": 0.00526,
+        "slot_cortex": 0.00886,
+        "topo_adapter": 0.02584,
+        "rssm": 1.62118
+      },
+      "L_cf": {
+        "rssm": 2.54861,
+        "d3qn": 0.41296
+      },
+      "L_vis": {
+        "foveal_enc": 0.01608,
+        "slot_cortex": 0.00094,
+        "hazard_net": 0.03585
+      },
+      "L_slot": {
+        "foveal_enc": 0.0,
+        "slot_cortex": 0.04064,
+        "topo_adapter": 0.00332,
+        "gwt": 1e-05,
+        "strat_tf": 0.0
+      },
+      "L_strat": {
+        "strat_tf": 3.65532
+      },
+      "L_self": {
+        "self_model": 0.12708
+      },
+      "L_lang": {
+        "broca": 0.25643,
+        "concept_grounder": 0.21917
+      }
+    },
+    "modules_touched_by_loss": {
+      "L_td": [
+        "d3qn",
+        "foveal_enc",
+        "gwt",
+        "slot_cortex",
+        "strat_tf",
+        "topo_adapter"
+      ],
+      "L_speed": [
+        "d3qn",
+        "foveal_enc",
+        "gwt",
+        "slot_cortex",
+        "strat_tf",
+        "topo_adapter"
+      ],
+      "L_rssm": [
+        "foveal_enc",
+        "rssm",
+        "slot_cortex",
+        "topo_adapter"
+      ],
+      "L_cf": [
+        "d3qn",
+        "rssm"
+      ],
+      "L_vis": [
+        "foveal_enc",
+        "hazard_net",
+        "slot_cortex"
+      ],
+      "L_slot": [
+        "foveal_enc",
+        "gwt",
+        "slot_cortex",
+        "strat_tf",
+        "topo_adapter"
+      ],
+      "L_strat": [
+        "strat_tf"
+      ],
+      "L_self": [
+        "self_model"
+      ],
+      "L_lang": [
+        "broca",
+        "concept_grounder"
+      ]
+    },
+    "pairwise_grad_cosine_full": [
+      [
+        1.0,
+        -0.0035,
+        0.0,
+        0.0144,
+        0.0,
+        -0.0001,
+        -0.0,
+        0.0,
+        0.0
+      ],
+      [
+        -0.0035,
+        1.0,
+        0.0,
+        0.005,
+        0.0001,
+        0.0001,
+        0.0009,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.2364,
+        0.0,
+        -0.0002,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0144,
+        0.005,
+        0.2364,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        1.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        -0.0001,
+        0.0001,
+        -0.0002,
+        0.0,
+        -0.0001,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        -0.0,
+        0.0009,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "pairwise_grad_cosine_shared_overlap": [
+      [
+        1.0,
+        -0.0072,
+        0.0912,
+        0.0067,
+        0.008,
+        -0.001,
+        0.003,
+        null,
+        null
+      ],
+      [
+        -0.0072,
+        1.0,
+        0.0384,
+        0.0678,
+        0.0433,
+        0.0033,
+        0.246,
+        null,
+        null
+      ],
+      [
+        0.0912,
+        0.0384,
+        1.0,
+        0.2715,
+        0.012,
+        -0.0227,
+        null,
+        null,
+        null
+      ],
+      [
+        0.0067,
+        0.0678,
+        0.2715,
+        1.0,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        0.008,
+        0.0433,
+        0.012,
+        null,
+        1.0,
+        -0.0002,
+        null,
+        null,
+        null
+      ],
+      [
+        -0.001,
+        0.0033,
+        -0.0227,
+        null,
+        -0.0002,
+        1.0,
+        0.2891,
+        null,
+        null
+      ],
+      [
+        0.003,
+        0.246,
+        null,
+        null,
+        null,
+        0.2891,
+        1.0,
+        null,
+        null
+      ],
+      [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1.0,
+        null
+      ],
+      [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1.0
+      ]
+    ]
+  },
+  "criterion_2b_silent_passenger_links": {
+    "n_states": 186,
+    "links": {
+      "L1_foveal_z": {
+        "action_flip_pct": 0.54,
+        "mean_max_abs_dq": 0.0043,
+        "policy_kl_bits": 3e-05
+      },
+      "L2_slot_cortex": {
+        "action_flip_pct": 1.61,
+        "mean_max_abs_dq": 0.0273,
+        "policy_kl_bits": 0.00029
+      },
+      "L3_topdown_t1_to_t": {
+        "action_flip_pct": 0.0,
+        "mean_max_abs_dq": 0.0009,
+        "policy_kl_bits": 0.0
+      },
+      "L4_mec_hd_3d": {
+        "action_flip_pct": 2.69,
+        "mean_max_abs_dq": 0.0676,
+        "policy_kl_bits": 0.00041
+      },
+      "L5_mem_compass_24d": {
+        "action_flip_pct": 32.8,
+        "mean_max_abs_dq": 0.2925,
+        "policy_kl_bits": 0.12547
+      },
+      "L6_rssm_recurrent_state": {
+        "action_flip_pct": 0.54,
+        "mean_max_abs_dq": 0.0079,
+        "policy_kl_bits": 1e-05
+      },
+      "L7_rssm_3head_imagination": {
+        "action_flip_pct": 16.13,
+        "mean_max_abs_dq": 0.0685,
+        "policy_kl_bits": 0.00253
+      },
+      "L8_gwt_broadcast": {
+        "action_flip_pct": 1.08,
+        "mean_max_abs_dq": 0.0536,
+        "policy_kl_bits": 0.00011
+      },
+      "L9_strategic_tf": {
+        "action_flip_pct": 0.0,
+        "mean_max_abs_dq": 0.0005,
+        "policy_kl_bits": 0.0
+      },
+      "L10_self_and_rvq": {
+        "action_flip_pct": 0.0,
+        "mean_max_abs_dq": 0.0095,
+        "policy_kl_bits": 0.00011
+      }
+    }
+  },
+  "criterion_3_cumulative_ladder": {
+    "L0_reactive": {
+      "win_rate_pct": 20.83,
+      "ci95_pct": [
+        10.4,
+        31.2
+      ],
+      "w_l_t": "0-14-10",
+      "sign_p": 0.00012,
+      "wilcoxon_p": 0.00012,
+      "dz": -1.158,
+      "max_prog_pct": 54.16,
+      "kills_per_game": 0.67,
+      "deaths_per_game": 0.46,
+      "turf_share_pct": 15.49,
+      "shots_per_game": 22.0,
+      "mean_stagnation": 0.197,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 220.04
+    },
+    "L1_slam_map": {
+      "win_rate_pct": 25.0,
+      "ci95_pct": [
+        12.5,
+        39.6
+      ],
+      "w_l_t": "3-15-6",
+      "sign_p": 0.00754,
+      "wilcoxon_p": 0.00754,
+      "dz": -0.692,
+      "max_prog_pct": 55.02,
+      "kills_per_game": 0.54,
+      "deaths_per_game": 0.65,
+      "turf_share_pct": 19.58,
+      "shots_per_game": 21.8,
+      "mean_stagnation": 0.296,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 227.05
+    },
+    "L2_homeo_scaffold": {
+      "win_rate_pct": 62.5,
+      "ci95_pct": [
+        50.0,
+        75.0
+      ],
+      "w_l_t": "8-2-14",
+      "sign_p": 0.10938,
+      "wilcoxon_p": 0.10938,
+      "dz": 0.411,
+      "max_prog_pct": 57.23,
+      "kills_per_game": 0.65,
+      "deaths_per_game": 0.88,
+      "turf_share_pct": 18.75,
+      "shots_per_game": 21.0,
+      "mean_stagnation": 0.248,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 229.66
+    },
+    "L3_neural_d3qn": {
+      "win_rate_pct": 35.42,
+      "ci95_pct": [
+        25.0,
+        45.8
+      ],
+      "w_l_t": "1-8-15",
+      "sign_p": 0.03906,
+      "wilcoxon_p": 0.03906,
+      "dz": -0.53,
+      "max_prog_pct": 55.31,
+      "kills_per_game": 0.79,
+      "deaths_per_game": 0.81,
+      "turf_share_pct": 17.46,
+      "shots_per_game": 20.9,
+      "mean_stagnation": 0.261,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 268.39
+    },
+    "L4_plus_rssm": {
+      "win_rate_pct": 31.25,
+      "ci95_pct": [
+        18.8,
+        43.8
+      ],
+      "w_l_t": "2-11-11",
+      "sign_p": 0.02246,
+      "wilcoxon_p": 0.02246,
+      "dz": -0.58,
+      "max_prog_pct": 55.48,
+      "kills_per_game": 0.88,
+      "deaths_per_game": 0.73,
+      "turf_share_pct": 15.89,
+      "shots_per_game": 19.4,
+      "mean_stagnation": 0.341,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 268.13
+    },
+    "L5_full_v21": {
+      "win_rate_pct": 50.0,
+      "ci95_pct": [
+        35.4,
+        64.6
+      ],
+      "w_l_t": "7-7-10",
+      "sign_p": 1.0,
+      "wilcoxon_p": 1.0,
+      "dz": 0.0,
+      "max_prog_pct": 58.16,
+      "kills_per_game": 0.9,
+      "deaths_per_game": 0.9,
+      "turf_share_pct": 16.3,
+      "shots_per_game": 18.9,
+      "mean_stagnation": 0.281,
+      "contract_errors": 0,
+      "eval_wall_sec_48games": 266.7
+    }
+  },
+  "total_elapsed_sec": 2891.33
+}

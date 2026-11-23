@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-brain3d_torch_models.py — Top-Level PyTorch Whole-Brain Neural Architecture Suite (13 Models)
-=============================================================================================
+brain3d_torch_models.py — Top-Level PyTorch Whole-Brain Neural Architecture Suite (13 Models, v2.2)
+===================================================================================================
 Barrier 1 Isolation Rule:
   This module imports `torch` at top level so all 12 `nn.Module` classes live cleanly at
   module scope (zero nested-function indentation) with full IDE/type-checker & pickle support.
@@ -146,7 +146,7 @@ class TensorTrainD3QNCandidateNet3D(nn.Module):
 
 class CategoricalRSSM3D(nn.Module):
     """
-    Upgraded 3-Head Multi-Step Causal Categorical World Model (`CategoricalRSSM3D` v2.1):
+    Upgraded 3-Head Multi-Step Causal Categorical World Model (`CategoricalRSSM3D` v2.2):
       - 1% Unimix categorical latents (`8x8 = 64D`) + recurrent `GRUCell` dynamics
       - Multi-step open-loop GRU imagination (`horizon=3`) across all `M=8` candidates:
           1. `pred_rew (B, 8)`  : Discounted multi-step tactical reward (`0.70/0.20/0.10`)
@@ -244,7 +244,7 @@ class CategoricalRSSM3D(nn.Module):
 
 class ObjectSlotPredictiveCortex3D(nn.Module):
     """
-    Asymmetric 4-Slot Object-Centric Predictive Visual Cortex (`ObjectSlotPredictiveCortex3D` v2.1):
+    Asymmetric 4-Slot Object-Centric Predictive Visual Cortex (`ObjectSlotPredictiveCortex3D` v2.2):
       - Slot 0 captures wide background / floor surface field; Slots 1..3 bind to salient foreground objects
       - Closes the recurrent Predictive Coding & Top-Down Precision Spotlight loop (`pred_err_16` + `topdown_gain_16`)
       - Injects zero-gated foreground residual `delta_z = tanh(z_res_gate) * out_z_proj(fg_pool)` into `latent_z`
@@ -517,7 +517,7 @@ class SpatialTopologicalGWTAdapter3D(nn.Module):
 
 class SlotConceptLanguageGrounder3D(nn.Module):
     """
-    Contrastive InfoNCE + Foreground-Slot MIL-InfoNCE Multimodal Concept Grounder (`v2.1`):
+    Contrastive InfoNCE + Foreground-Slot MIL-InfoNCE Multimodal Concept Grounder (`v2.2`):
       - Aligns global `slot_ctx64` AND translation-invariant foreground visual slots (`Slots 1..3`)
         with Wernicke language & RVQ Proto-Symbols while repelling background `Slot 0` (hard negative).
     """
@@ -643,7 +643,7 @@ class SlotConceptLanguageGrounder3D(nn.Module):
 
 class ActiveGWTWorkspace3D(nn.Module):
     """
-    5-Specialist Global Workspace with Nonlinear All-or-None Ignition Phase-Transition Gate (`v2.1`):
+    5-Specialist Global Workspace with Nonlinear All-or-None Ignition Phase-Transition Gate (`v2.2`):
       - Sub-threshold diffuse competition preserves reverberant `prev_gwt` working memory.
       - Supra-threshold specialist coalition triggers steep sigmoid global ignition (`ignition`),
         writing strongly to `gwt_w` and scaling top-down cortical modulation `z_td`.
@@ -739,7 +739,7 @@ class ActiveGWTWorkspace3D(nn.Module):
 
 class CoarseSelfModel3D(nn.Module):
     """
-    HOT / Attention-Schema Metacognitive Self-Model (`CoarseSelfModel3D` v2.1):
+    HOT / Attention-Schema Metacognitive Self-Model (`CoarseSelfModel3D` v2.2):
       - Encodes current internal self-state from `[gwt_w, proprio]` + Attention Schema `gwt_alpha[5]`
       - Predicts expected self-state from `prev_self` + Efference Copy `[prev_act(32), prev_alpha(5)]`
       - Outputs `(cur, surprise, err_vec, pred)` to close the metacognitive self-prediction error loop!
@@ -785,7 +785,7 @@ class CoarseSelfModel3D(nn.Module):
 
 class StrategicTransformer3D(nn.Module):
     """
-    Prefrontal Episodic Context Transformer (`StrategicTransformer3D` v2.1):
+    Prefrontal Episodic Context Transformer (`StrategicTransformer3D` v2.2):
     Attends over recent `(gwt_workspace, self_state, mem_compass)` snapshots + causal metacognitive
     `self_surprise` error residual (`meta_err9`) and outputs:
       - `strat_embed (B, 64)` for GWT Specialist #4

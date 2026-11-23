@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_cognitive_procs.py — Homeostasis, Information Geometry (`Phi_G` / Fisher-Rao),
-System1Reflex (P4), ConsciousGWT (P5), LanguageCortex (P6) & TelemetryConsole (P7)
-======================================================================================
+System1Reflex (P4), ConsciousGWT (P5), LanguageCortex (P6) & TelemetryConsole (P7) [v2.2]
+=========================================================================================
 Barrier 1 Guarantee: Strictly Zero-PyTorch (`"torch" not in sys.modules`).
 License: GNU General Public License v3.0 (GPL-3.0)
 """

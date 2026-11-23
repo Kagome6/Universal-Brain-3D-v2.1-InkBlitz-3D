@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_neural_engine.py — Emergent RVQ Symbols, PER RingBuffer, Whole-Brain Continual
-Learner (`WholeBrainNeuralEngineWrapper`), RPC Client & `GPUInferenceProcess` (P2)
-======================================================================================
+Learner (`WholeBrainNeuralEngineWrapper`), RPC Client & `GPUInferenceProcess` (P2, v2.2)
+========================================================================================
 Barrier 1 Guarantee:
   Zero top-level `torch` imports! `torch` and `brain3d_torch_models` are imported strictly
   inside `WholeBrainNeuralEngineWrapper.__init__` (Process #2 GPU boundary).
@@ -1227,7 +1227,9 @@ class WholeBrainNeuralEngineWrapper:
             gwt_live.detach(), prop, prev_self_t,
             gwt_alpha=alp_live.detach(), prev_act=prev_act_t, prev_alpha=prev_alpha_t,
         )
-        z_eff = torch.tanh(z_perc + 0.70 * z_td)
+        # Straight-through 0.25 gradient scaling protects foveal_enc depth/hazard representations from 9x TD dominance
+        z_perc_for_q = 0.25 * z_perc + 0.75 * z_perc.detach()
+        z_eff = torch.tanh(z_perc_for_q + 0.70 * z_td)
 
         # 1. Double-DQN N-Step TD Loss (with PER Importance Sampling weights) & Speed Modulation Head
         q_all, spd_all = self.models["d3qn"](z_eff, gwt_live, h_post.detach(), mec, hd, prop, comp, c_feats)
@@ -1439,11 +1441,26 @@ class WholeBrainNeuralEngineWrapper:
             & (c_feats[:, CAND_IDX_IDLE_OBSERVE, CFEAT_HAZARD] >= SHIELD_HAZARD_CF_MASK)
         )
         if exposed_mask.any():
-            cf_surv_m7 = p_surv[exposed_mask, CAND_IDX_IDLE_OBSERVE].clamp(1e-4, 1.0 - 1e-4)
+            # Detach factual posterior/visual latents so counterfactual M7 regularization updates ONLY
+            # action-conditioned imagination & candidate-advantage heads (zero encoder gradient conflict!)
+            _, p_surv_cf, _ = self.models["rssm"].imagine_candidates(
+                h_post[exposed_mask].detach(), post_st[exposed_mask].detach(), c_feats[exposed_mask], horizon=3
+            )
+            cf_surv_m7 = p_surv_cf[:, CAND_IDX_IDLE_OBSERVE].clamp(1e-4, 1.0 - 1e-4)
             cf_tgt = torch.full_like(cf_surv_m7, 0.12)
+            q_cf_exp, _ = self.models["d3qn"](
+                z_eff[exposed_mask].detach(),
+                gwt_live[exposed_mask].detach(),
+                h_post[exposed_mask].detach(),
+                mec[exposed_mask],
+                hd[exposed_mask],
+                prop[exposed_mask],
+                comp[exposed_mask],
+                c_feats[exposed_mask],
+            )
             cf_loss = (
                 0.45 * F.binary_cross_entropy(cf_surv_m7, cf_tgt)
-                + 0.25 * F.relu(q_all[exposed_mask, CAND_IDX_IDLE_OBSERVE] - q_chosen[exposed_mask].detach() + 0.6).mean()
+                + 0.25 * F.relu(q_cf_exp[:, CAND_IDX_IDLE_OBSERVE] - q_chosen[exposed_mask].detach() + 0.6).mean()
             )
 
         # 3. Depth Auto-Encoding, Amygdala Hazard, Predictive Visual Field & Spotlight, Strategic & Self Losses

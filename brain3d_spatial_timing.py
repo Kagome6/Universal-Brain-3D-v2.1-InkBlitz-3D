@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 brain3d_spatial_timing.py — 4-Layer Allocentric Field Map, Landmark EKF-SLAM,
-Ballistic Cerebellum, Authoritative 8-Candidate Proposal & Basal Ganglia Gate (P3)
-==================================================================================
+Ballistic Cerebellum, Authoritative 8-Candidate Proposal & Basal Ganglia Gate (P3, v2.2)
+========================================================================================
 Barrier 1 Guarantee: Strictly Zero-PyTorch (`"torch" not in sys.modules`).
 License: GNU General Public License v3.0 (GPL-3.0)
 """
@@ -2099,7 +2099,14 @@ class BasalGanglia3DTimingEngineV2:
         go_drive = float(np.clip(0.55 + 0.25 * math.tanh(0.35 * q_chosen) + 0.45 * survival_prob + 0.35 * scene_opportunity_prob, 0.15, 2.20))
 
         crossfire_f = float(local_kinetic_risk) * (1.25 if in_refuge else 0.40)
-        lead_sync_f = float(np.clip(0.65 - scene_opportunity_prob, 0.0, 0.65)) if chosen_verb in (VERB_RELEASE_PLACE, VERB_IMPULSE_PUSH) else 0.0
+        has_ballistic_target = (int(chosen_cand_idx) != int(CAND_IDX_FRONTIER_TURF)) and (
+            float(scene_opportunity_prob) > 0.16 or float(local_kinetic_risk) > 0.05
+        )
+        lead_sync_f = (
+            float(np.clip(0.65 - scene_opportunity_prob, 0.0, 0.65))
+            if (chosen_verb in (VERB_RELEASE_PLACE, VERB_IMPULSE_PUSH) and has_ballistic_target)
+            else 0.0
+        )
         s1_gwt_conf = 0.45 if (chosen_cand_idx != s1_fast_cand_idx and self.turn_wait_ms < 120.0) else 0.0
         meta_surp_conf = (
             0.35 * float(np.clip(float(self_surprise) - 0.16, 0.0, 0.85))
