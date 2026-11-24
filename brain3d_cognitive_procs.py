@@ -45,20 +45,39 @@ from brain3d_neural_engine import BrainRPCClient
 # ==============================================================================
 class ActionStagnationHomeostasis3D:
     """
-    Domain-universal neuro-computational anti-lock-in homeostasis (ACC Foraging Value Depletion +
-    Striatal Short-Term Synaptic Depression + Coarse 16x16 Epistemic Visit Novelty):
-      - Smoothly depresses unrewarded repetitive actions (`habituation_trace[8]`)
-      - Detects unproductive spatial stagnation (`stagnation_level in [0, 1]`) while exempting
-        legitimate low-resource refuge regeneration
+    Domain-universal neuro-computational anti-lock-in homeostasis [v2.3.2 Fractional Power-Law Adaptation]
+    (ACC Foraging Value Depletion + Multi-Pole Mittag-Leffler Cortical Adaptation + Epistemic Visit Novelty):
+      - Smoothly depresses unrewarded repetitive actions via a `K=4` Mittag-Leffler fractional conductance
+        bank (`habituation_trace[8]`, Lundstrom et al., 2008) so brief 1-2s purposeful traversal stays
+        agile while persistent 8-15s behavioral loops accumulate a deep `t^-alpha` refractory trace!
+      - Detects unproductive spatial stagnation (`stagnation_level in [0, 1]`) using fractional displacement
+        rate while exempting legitimate low-resource refuge regeneration
       - Computes bounded intrinsic novelty / boredom reward shaping so hiding in a corner/closet
         never becomes a `0.0` Bellman local optimum ("Cowardice Equilibrium").
     """
 
-    def __init__(self, world_min: Tuple[float, float, float], world_max: Tuple[float, float, float]):
+    def __init__(
+        self,
+        world_min: Tuple[float, float, float],
+        world_max: Tuple[float, float, float],
+        frac_alpha: float = 0.52,
+    ):
         self.wmin = np.asarray(world_min, dtype=np.float32)
         self.wmax = np.asarray(world_max, dtype=np.float32)
         self.span = np.maximum(1.0, self.wmax - self.wmin)
         self.episode_id = -1
+        self.frac_alpha = float(np.clip(frac_alpha, 0.20, 0.88))
+        self._hab_bank = MittagLefflerAdaptationBankO1(
+            dim=NUM_CANDIDATES,
+            alpha=self.frac_alpha,
+            tau_poles=(0.35, 1.45, 5.80, 20.0),
+            init_val=0.0,
+        )
+        self._pos_frac_diff = CaputoFractionalDiffO1(
+            dim=2,
+            alpha=self.frac_alpha,
+            tau_poles=(0.20, 0.90, 4.00, 14.0),
+        )
         self.habituation_trace = np.zeros(NUM_CANDIDATES, dtype=np.float32)
         self.pos_ema_xz = np.zeros(2, dtype=np.float32)
         self.prev_pos_xz = np.zeros(2, dtype=np.float32)
@@ -67,20 +86,29 @@ class ActionStagnationHomeostasis3D:
         self.regen_exempt_steps = 0
         self.visit_counts = np.zeros((16, 16), dtype=np.float32)
 
+    def set_frac_alpha(self, frac_alpha: float) -> None:
+        self.frac_alpha = float(np.clip(frac_alpha, 0.20, 0.88))
+        self._hab_bank.set_alpha(self.frac_alpha)
+        self._pos_frac_diff.set_alpha(self.frac_alpha)
+
     def reset(self, episode_id: int, pos_xz: np.ndarray) -> None:
         self.episode_id = int(episode_id)
+        self._hab_bank.reset(0.0)
         self.habituation_trace.fill(0.0)
         self.pos_ema_xz = np.asarray(pos_xz, dtype=np.float32).copy()
         self.prev_pos_xz = self.pos_ema_xz.copy()
+        self._pos_frac_diff.reset(self.pos_ema_xz)
         self.ema_initialized = True
         self.stagnation_level = 0.0
         self.regen_exempt_steps = 0
         self.visit_counts.fill(0.0)
 
     def on_respawn(self, pos_xz: np.ndarray) -> None:
-        self.habituation_trace *= 0.25
+        self._hab_bank.scale_all(0.25)
+        self.habituation_trace = self._hab_bank.readout()
         self.pos_ema_xz = np.asarray(pos_xz, dtype=np.float32).copy()
         self.prev_pos_xz = self.pos_ema_xz.copy()
+        self._pos_frac_diff.reset(self.pos_ema_xz)
         self.stagnation_level = 0.0
         self.regen_exempt_steps = 0
 
@@ -94,6 +122,7 @@ class ActionStagnationHomeostasis3D:
         world_surprise: float = 0.0,
         self_surprise: float = 0.0,
         respawn_flag: bool = False,
+        dt: float = 1.0 / 12.0,
     ) -> float:
         pxz = np.asarray(pos_xz, dtype=np.float32)
         if int(episode_id) != self.episode_id or not self.ema_initialized:
@@ -101,14 +130,16 @@ class ActionStagnationHomeostasis3D:
         elif respawn_flag:
             self.on_respawn(pxz)
 
+        dt_c = float(np.clip(dt, 1.0 / 60.0, 0.35))
         move_delta = float(np.linalg.norm(pxz - self.prev_pos_xz))
         self.prev_pos_xz = pxz.copy()
         self.pos_ema_xz = 0.94 * self.pos_ema_xz + 0.06 * pxz
         ema_disp = float(np.linalg.norm(pxz - self.pos_ema_xz))
+        frac_vel_mag = float(np.linalg.norm(self._pos_frac_diff.step(pxz, dt_c)))
 
         in_refuge = is_in_stealth_or_cover_refuge(proprio)
         tank = get_resource_tank_level(proprio)
-        if ema_disp >= 1.55 or step_extrinsic_reward > 0.015:
+        if ema_disp >= 1.55 or frac_vel_mag >= 1.45 or step_extrinsic_reward > 0.015:
             self.regen_exempt_steps = 0
         elif in_refuge and (tank < 0.80):
             self.regen_exempt_steps += 1
@@ -118,18 +149,22 @@ class ActionStagnationHomeostasis3D:
         # can NEVER endlessly reset `stagnation_level` back to 0.0!
         legit_regen = in_refuge and (tank < 0.80) and (self.regen_exempt_steps <= 24)
 
-        self.habituation_trace *= 0.88
+        self._hab_bank.decay_step(dt_c)
         c_i = int(np.clip(chosen_idx, 0, NUM_CANDIDATES - 1))
         if step_extrinsic_reward > 0.015:
-            self.habituation_trace[c_i] *= 0.25
-        elif ema_disp >= 1.35 and move_delta >= 0.18:
-            # Purposeful spatial traversal (e.g. advancing across already-painted turf) is NOT lock-in:
-            # do not punish active forward travel with artificial action-switching depression!
-            self.habituation_trace[c_i] *= 0.85
+            # Fast poles clear immediately on extrinsic reward while ultra-slow pole retains mild diversity memory
+            self._hab_bank.poles[:2, c_i] *= 0.20
+            self._hab_bank.poles[2:, c_i] *= 0.55
+        elif (ema_disp >= 1.35 or frac_vel_mag >= 1.30) and move_delta >= 0.18:
+            # Purposeful multi-scale spatial traversal across already-painted turf is NOT lock-in!
+            self._hab_bank.poles[:, c_i] *= 0.85
         elif step_extrinsic_reward <= 0.005 and not legit_regen:
-            self.habituation_trace[c_i] = min(1.0, float(self.habituation_trace[c_i]) + 0.16)
+            # Multi-scale power-law drive: fast poles saturate gently while slow poles catch persistent macro-loops
+            pole_drive = np.array([0.14, 0.18, 0.22, 0.26], dtype=np.float32) * float(min(1.8, dt_c * 12.0))
+            self._hab_bank.poles[:, c_i] = np.minimum(1.0, self._hab_bank.poles[:, c_i] + pole_drive)
+        self.habituation_trace = self._hab_bank.readout()
 
-        if ema_disp >= 1.55 or step_extrinsic_reward > 0.008:
+        if ema_disp >= 1.55 or frac_vel_mag >= 1.45 or step_extrinsic_reward > 0.008:
             self.stagnation_level = max(0.0, self.stagnation_level - 0.20)
         elif not legit_regen:
             ss_boost = 0.04 * min(1.0, max(0.0, float(self_surprise))) if math.isfinite(self_surprise) else 0.0
@@ -790,7 +825,9 @@ def run_conscious_gwt_3d_process(
     prev_pi: Optional[np.ndarray] = None
     mod_hist: deque = deque(maxlen=48)
     last_mod_ep = -1
-    homeostasis = ActionStagnationHomeostasis3D(cfg.world_min, cfg.world_max)
+    homeostasis = ActionStagnationHomeostasis3D(
+        cfg.world_min, cfg.world_max, frac_alpha=float(getattr(cfg, "frac_memory_alpha", 0.52))
+    )
     strategy_ctrl = create_runtime_strategy_controller(cfg, slot_id=0)
     ventral_prev: Dict[str, Any] = {}
     pending_tr: Optional[Dict[str, Any]] = None
@@ -988,6 +1025,7 @@ def run_conscious_gwt_3d_process(
                 world_surprise=float(gwt_out["world_surprise"]),
                 self_surprise=float(gwt_out["self_surprise"]),
                 respawn_flag=respawn_ev,
+                dt=dt,
             )
 
             s1_rec, _ = intent_bus.read_channel(CH_REFLEX_S1)

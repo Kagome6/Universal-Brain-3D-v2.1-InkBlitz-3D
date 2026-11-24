@@ -83,6 +83,8 @@ class MultiLayerCognitiveFieldMap3D:
         self.visit_freshness = np.zeros((self.grid_n, self.grid_n), dtype=np.float32)
         self.dwell_saturation = np.zeros((self.grid_n, self.grid_n), dtype=np.float32)
         self.strategic_hazard_scar = np.zeros((self.grid_n, self.grid_n), dtype=np.float32)
+        self._hazard_scar_tail = np.zeros((self.grid_n, self.grid_n), dtype=np.float32)
+        self.frac_memory_alpha: float = 0.52
         self.strategic_lane_weights: Tuple[float, float, float] = (1.0, 1.0, 1.0)
         self._strategic_lane_mult_grid = np.ones((self.grid_n, self.grid_n), dtype=np.float32)
         self._committed_frontier_cell: Optional[Tuple[int, int]] = None
@@ -108,6 +110,7 @@ class MultiLayerCognitiveFieldMap3D:
         self.visit_freshness.fill(0.0)
         self.dwell_saturation.fill(0.0)
         self.strategic_hazard_scar.fill(0.0)
+        self._hazard_scar_tail.fill(0.0)
         self._committed_frontier_cell = None
         self._committed_frontier_ticks = 0
         self._committed_flank_side = 0
@@ -157,14 +160,21 @@ class MultiLayerCognitiveFieldMap3D:
         self.set_strategic_lane_weights(w_tup[0], w_tup[1], w_tup[2], clear_commitment=changed)
 
     def register_strategic_hazard_scar(self, dead_x: float, dead_z: float) -> None:
-        """Deposit a mild decaying mid-match danger memory around a splat site without forcing wide stadium-rim detours."""
+        """
+        Deposit a two-pole fractional (Mittag-Leffler-like) danger memory around a splat site [v2.3.2]:
+        fast transient sheds quickly so M0 will not swing to stadium rims, while `_hazard_scar_tail`
+        preserves a subtle power-law caution trace at repeated ambush sites.
+        """
         iz, ix = self.world_to_cell(float(dead_x), float(dead_z))
+        tail_w = float(np.clip(1.0 - float(self.frac_memory_alpha), 0.14, 0.65))
         for dz in range(-2, 3):
             for dx in range(-2, 3):
                 jz, jx = iz + dz, ix + dx
                 if 0 <= jz < self.grid_n and 0 <= jx < self.grid_n:
                     d2 = float(dz * dz + dx * dx)
-                    self.strategic_hazard_scar[jz, jx] = min(0.52, float(self.strategic_hazard_scar[jz, jx]) + 0.30 / (1.0 + 0.55 * d2))
+                    imp = 0.30 / (1.0 + 0.55 * d2)
+                    self._hazard_scar_tail[jz, jx] = min(0.24, float(self._hazard_scar_tail[jz, jx]) + tail_w * 0.42 * imp)
+                    self.strategic_hazard_scar[jz, jx] = min(0.52, float(self.strategic_hazard_scar[jz, jx]) + imp)
         self._route_cache.clear()
 
     def export_structural_schema(self) -> Dict[str, Any]:
@@ -278,8 +288,10 @@ class MultiLayerCognitiveFieldMap3D:
         Vectorized 60Hz integration of 1st-person dorsal+ventral rays & footstep proprioception.
         Returns `(friendly_turf_ratio, enemy_turf_ratio)` over explored traversable cells.
         """
-        # 1. Temporal staleness decay on unobserved surface & visit freshness
+        # 1. Temporal staleness decay on unobserved surface & visit freshness (+ v2.3.2 heavy-tail scar memory)
         self._map_step_counter += 1
+        if np.any(self._hazard_scar_tail > 1e-4):
+            self._hazard_scar_tail *= math.exp(-0.012 * float(dt))
         if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
             surf_posture = float(proprio[PROPRIO_IDX_SURFACE_POSTURE]) if proprio.shape[0] > PROPRIO_IDX_SURFACE_POSTURE else 0.45
             fov_c = np.ascontiguousarray(fovea_patch, dtype=np.float32)
@@ -307,6 +319,8 @@ class MultiLayerCognitiveFieldMap3D:
                 _f32_ptr(fov_c), vent_ptr, unc_ptr,
                 _f32_ptr(out_r2),
             )
+            if np.any(self._hazard_scar_tail > 1e-4):
+                np.maximum(self.strategic_hazard_scar, self._hazard_scar_tail, out=self.strategic_hazard_scar)
             return float(out_r2[0]), float(out_r2[1])
 
         self.surface_obs_age = np.minimum(99.0, self.surface_obs_age + float(dt))
@@ -317,7 +331,10 @@ class MultiLayerCognitiveFieldMap3D:
                 self.surface_map = np.where(stale_mask, self.surface_map * decay_k, self.surface_map)
         self.visit_freshness *= math.exp(-0.025 * float(dt))
         self.dwell_saturation *= math.exp(-0.085 * float(dt))
-        self.strategic_hazard_scar *= math.exp(-0.045 * float(dt))
+        self.strategic_hazard_scar = np.maximum(
+            self.strategic_hazard_scar * math.exp(-0.095 * float(dt)),
+            self._hazard_scar_tail,
+        )
 
         # 2. Mark ego footprint & proprioceptive surface contact (including immediate 4-connected touch radius)
         ego_iz, ego_ix = self.world_to_cell(float(believed_pos[0]), float(believed_pos[2]))
@@ -1084,6 +1101,8 @@ class EntorhinalHippocampal3DEngineV2:
             grid_n=FIELD_MAP_MAX_N,
             surface_decay_per_sec=self.profile.surface_staleness_decay_per_sec,
         )
+        self.field_map.frac_memory_alpha = float(getattr(cfg, "frac_memory_alpha", 0.52))
+        self._gaze_yaw_frac_diff = CaputoFractionalDiffO1(dim=2, alpha=0.68, tau_poles=(0.05, 0.22, 0.90))
 
         # Precompute 32 Fibonacci-sphere 3D Head-Direction preferred unit vectors
         idx = np.arange(HD_RING_DIM, dtype=np.float32)
@@ -1359,10 +1378,14 @@ class EntorhinalHippocampal3DEngineV2:
                 "radius": rad,
                 "tag": tag,
                 "conf": conf,
+                "init_conf": conf,
+                "disconfirmed": False,
                 "unseen_sec": 0.0,
             }
 
-        # Update unseen slots with multi-timescale decay, 1st-person visual disconfirmation & short-horizon extrapolation
+        # Update unseen slots with v2.3.2 Mittag-Leffler fractional persistence, 1st-person visual disconfirmation & extrapolation
+        frac_alpha = float(getattr(self.cfg, "frac_memory_alpha", 0.52))
+        self.field_map.frac_memory_alpha = frac_alpha
         active_fovea = fovea_override if fovea_override is not None else np.asarray(world_rec["fovea_patch"], dtype=np.float32)
         cy_cur, sy_cur = math.cos(float(true_yp[0])), math.sin(float(true_yp[0]))
         cp_cur, sp_cur = math.cos(float(true_yp[1])), math.sin(float(true_yp[1]))
@@ -1379,7 +1402,7 @@ class EntorhinalHippocampal3DEngineV2:
                 tag = float(slot["tag"])
                 if SemanticTag.is_hostile(tag):
                     decay = max(1.85, self.profile.opponent_memory_decay_per_sec) if eid == self.ACOUSTIC_PHANTOM_ID else self.profile.opponent_memory_decay_per_sec
-                    visually_disconfirmed = False
+                    visually_disconfirmed = bool(slot.get("disconfirmed", False))
                     rel_s = slot["pos"] - self.believed_pos
                     dist_s = float(np.linalg.norm(rel_s))
                     if 0.60 <= dist_s <= max_fov_rng - 1.0:
@@ -1394,14 +1417,19 @@ class EntorhinalHippocampal3DEngineV2:
                                 ray_d_m = (1.0 - float(np.clip(active_fovea[r_px, c_px, 0], 0.0, 1.0))) * max_fov_rng
                                 if ray_d_m > dist_s + 0.75:
                                     visually_disconfirmed = True
+                                    slot["disconfirmed"] = True
                                     decay = max(decay, 5.50)
                     if (not visually_disconfirmed) and eid != self.ACOUSTIC_PHANTOM_ID and slot["unseen_sec"] <= 0.65:
                         slot["pos"] = np.clip(slot["pos"] + slot["vel"] * float(dt), self.wmin + 0.5, self.wmax - 0.5)
+                    if (not visually_disconfirmed) and eid != self.ACOUSTIC_PHANTOM_ID and slot["unseen_sec"] <= 12.0:
+                        init_c = float(slot.get("init_conf", slot["conf"]))
+                        slot["conf"] = init_c * eval_mittag_leffler_survival(float(slot["unseen_sec"]), decay, alpha=frac_alpha)
+                    else:
+                        slot["conf"] = float(slot["conf"]) * math.exp(-max(decay, 5.50 if visually_disconfirmed else decay) * float(dt))
                 elif SemanticTag.is_primary_objective(tag):
-                    decay = self.profile.objective_memory_decay_per_sec
+                    slot["conf"] = float(slot["conf"]) * math.exp(-self.profile.objective_memory_decay_per_sec * float(dt))
                 else:
-                    decay = 0.012
-                slot["conf"] = float(slot["conf"]) * math.exp(-decay * float(dt))
+                    slot["conf"] = float(slot["conf"]) * math.exp(-0.012 * float(dt))
                 if slot["conf"] < 0.08:
                     to_prune.append(eid)
             slot["unseen_sec"] = float(slot["unseen_sec"]) + float(dt)
@@ -1660,8 +1688,12 @@ class EntorhinalHippocampal3DEngineV2:
                 self.scan_hold_ticks -= 1
 
             cur_y = float(self.active_gaze_ypd[0])
+            yaw_cs = np.array([math.cos(cur_y), math.sin(cur_y)], dtype=np.float64)
+            d_cs = self._gaze_yaw_frac_diff.step(yaw_cs, dt)
+            frac_yaw_rate = float(-yaw_cs[1] * float(d_cs[0]) + yaw_cs[0] * float(d_cs[1]))
             dyaw = math.atan2(math.sin(self.scan_target_yaw - cur_y), math.cos(self.scan_target_yaw - cur_y))
-            next_yaw = math.atan2(math.sin(cur_y + float(np.clip(dyaw, -0.22, 0.22))), math.cos(cur_y + float(np.clip(dyaw, -0.22, 0.22))))
+            pd_step = float(np.clip(dyaw - 0.035 * frac_yaw_rate, -0.22, 0.22))
+            next_yaw = math.atan2(math.sin(cur_y + pd_step), math.cos(cur_y + pd_step))
             self.active_gaze_ypd = np.array([next_yaw, -0.20, 7.0], dtype=np.float32)
 
         body_yaw = math.atan2(float(true_vel[0]), float(true_vel[2])) if float(np.linalg.norm(true_vel[[0, 2]])) > 0.25 else float(self.active_gaze_ypd[0])
@@ -1805,9 +1837,11 @@ def compute_universal_memory_compass(
 
 class Cerebellar3DKinematicPredictorV2:
     """
-    Forward Cerebellar Internal Model (`Cerebellar3DKinematicPredictorV2`):
+    Forward Cerebellar Internal Model (`Cerebellar3DKinematicPredictorV2` [v2.3.2 Fractional FO-PD]):
       1. Computes analytic 3D ballistic projectile lead-interception `lead_aim_xyz` for moving targets:
-         solves `||p_target + v_target * t_hit - p_self|| = v_projectile * t_hit` (2 Newton/fixed-point steps).
+         solves `||p_target + v_eff * t_hit - p_self|| = v_projectile * t_hit` where `v_eff` blends
+         instantaneous velocity with a `K=3` Caputo fractional position derivative (`mu = 0.72`)
+         to suppress high-frequency strafe-juking / feint overshoot while preserving phase lead!
       2. Simulates a `2.0s` forward kinematic rollout of believed dynamic entities to quantify:
          - `scene_opportunity_prob` (clean line-of-fire / objective window alignment)
          - `local_kinetic_risk` (incoming projectile / opponent collision crossfire risk)
@@ -1816,14 +1850,24 @@ class Cerebellar3DKinematicPredictorV2:
     def __init__(self, cfg: Brain3DConfig):
         self.cfg = cfg
         self.profile = get_task_profile(cfg.task_profile)
+        self._ent_frac_filters: Dict[int, Tuple[CaputoFractionalDiffO1, int, int]] = {}
+        self._step_seq: int = 0
+
+    def reset_filters(self) -> None:
+        self._ent_frac_filters.clear()
+        self._step_seq = 0
 
     def predict_lead_and_crossfire(
         self,
         believed_self_pos: np.ndarray,
         believed_entities: np.ndarray,
         believed_count: int,
+        dt: float = 1.0 / 60.0,
     ) -> Tuple[np.ndarray, float, float, float]:
         """Returns `(lead_aim_xyz, scene_opportunity_prob, local_kinetic_risk, max_scene_speed)`."""
+        self._step_seq += 1
+        dt_c = float(np.clip(dt, 1.0 / 240.0, 0.20))
+        frac_mu = float(np.clip(0.55 + 0.30 * float(getattr(self.cfg, "frac_memory_alpha", 0.52)), 0.60, 0.84))
         v_proj = max(4.0, float(self.profile.projectile_speed_mps))
         lead_xyz = np.zeros(3, dtype=np.float32)
         best_target_score = -1.0
@@ -1837,6 +1881,7 @@ class Cerebellar3DKinematicPredictorV2:
             conf = float(ent[9])
             if conf <= 0.08:
                 continue
+            eid = int(round(float(ent[0])))
             pos = ent[1:4]
             vel = ent[4:7]
             spd = float(np.linalg.norm(vel))
@@ -1851,13 +1896,37 @@ class Cerebellar3DKinematicPredictorV2:
                         local_risk = max(local_risk, float(np.clip((4.2 - dist) / 2.6 * conf, 0.0, 1.0)))
                     continue
 
+                # Fractional-Order FO-PD^mu anti-juke velocity estimation (exact `vel` on 1st observation)
+                eff_vel = vel
+                if eid > 0 and eid != EntorhinalHippocampal3DEngineV2.ACOUSTIC_PHANTOM_ID:
+                    entry = self._ent_frac_filters.get(eid)
+                    if entry is None or (self._step_seq - entry[2]) > 18:
+                        flt = CaputoFractionalDiffO1(dim=3, alpha=frac_mu, tau_poles=(0.12, 0.42, 1.50))
+                        flt.reset(pos)
+                        self._ent_frac_filters[eid] = (flt, 1, self._step_seq)
+                    else:
+                        flt, obs_cnt, _ = entry
+                        flt.set_alpha(frac_mu)
+                        d_mu_pos = flt.step(pos, dt_c)
+                        # Reset on teleport/respawn jump (`> 3.5m` in one step)
+                        if float(np.linalg.norm(d_mu_pos)) > 35.0:
+                            flt.reset(pos)
+                            self._ent_frac_filters[eid] = (flt, 1, self._step_seq)
+                        else:
+                            obs_cnt_next = min(64, obs_cnt + 1)
+                            self._ent_frac_filters[eid] = (flt, obs_cnt_next, self._step_seq)
+                            if obs_cnt_next >= 3:
+                                w_frac = float(np.clip((obs_cnt_next - 2) * 0.24, 0.0, 0.72))
+                                v_frac = np.clip(d_mu_pos * math.gamma(2.0 - frac_mu), -14.0, 14.0)
+                                eff_vel = ((1.0 - w_frac) * vel + w_frac * v_frac).astype(np.float32)
+
                 # Iterative ballistic interception time `t_hit` + parabolic gravity compensation
                 t_hit = dist / v_proj
                 for _ in range(2):
-                    pred_p = pos + vel * t_hit
+                    pred_p = pos + eff_vel * t_hit
                     t_hit = float(np.linalg.norm(pred_p - believed_self_pos)) / v_proj
                 t_hit = float(np.clip(t_hit, 0.0, 1.15))
-                cand_lead = (pos + vel * t_hit).copy()
+                cand_lead = (pos + eff_vel * t_hit).copy()
                 g_proj = float(getattr(self.profile, "projectile_gravity_mps2", 0.0))
                 if g_proj > 0.0:
                     cand_lead[1] += min(1.05, 0.5 * g_proj * t_hit * t_hit)
@@ -1883,6 +1952,11 @@ class Cerebellar3DKinematicPredictorV2:
                         opp_prob,
                         float(np.clip((self.profile.ranged_engage_max_m + 1.0 - d_obj) / (self.profile.ranged_engage_max_m + 1.0) * conf, 0.25, 0.94)),
                     )
+
+        if len(self._ent_frac_filters) > 64:
+            stale_eids = [k for k, v in self._ent_frac_filters.items() if (self._step_seq - v[2]) > 30]
+            for k in stale_eids:
+                self._ent_frac_filters.pop(k, None)
 
         return lead_xyz, float(opp_prob), float(local_risk), float(max_spd)
 
@@ -2259,9 +2333,12 @@ class DopamineSNcTimingPlasticity3D:
 
 class BasalGanglia3DTimingEngineV2:
     """
-    Basal Ganglia Direct (`Go`) vs. Hyperdirect (`STN-SNr Brake`) Bounded-Urgency Race Model:
+    Basal Ganglia Direct (`Go`) vs. Hyperdirect (`STN-SNr Brake`) Bounded-Urgency Race Model [v2.3.2]:
+      - Feeds a `K=4` Caputo Fractional Danger Derivative `D_t^alpha(Hazard)` into `STN-SNr` and
+        Emergency Escape so rising multi-scale threat pressure triggers proactive open-space escape
+        or deeper cover hold, while subsiding danger (`D_t^alpha < 0`) releases counterattack windows!
       - Guarantees **Instant Escape Exemption**: if `VERB_EVADE_HAZARD` is selected OR the agent is
-        exposed in open space under threat (`hazard >= 0.42`), the gate opens immediately (`0 ms` delay)!
+        exposed in open space under threat (`eff_hazard >= 0.42`), the gate opens immediately (`0 ms` delay)!
       - Supports **Cover/Swim Regen Hold (`HOLD_COVER_STEALTH_REGEN`)**: maintains refuge while tank
         regenerates or heavy crossfire passes outside cover.
       - Synchronizes ballistic ranged shots (`HOLD_OPPORTUNITY_SYNC`) with cerebellar lead windows.
@@ -2270,6 +2347,12 @@ class BasalGanglia3DTimingEngineV2:
     def __init__(self, cfg: Brain3DConfig):
         self.cfg = cfg
         self.da_plasticity = DopamineSNcTimingPlasticity3D(cfg.stn_stealth_gain)
+        self.hazard_frac_diff = CaputoFractionalDiffO1(
+            dim=1,
+            alpha=float(getattr(cfg, "frac_memory_alpha", 0.52)),
+            tau_poles=(0.08, 0.40, 2.00, 9.00),
+        )
+        self.last_d_alpha_hazard: float = 0.0
         self.current_ep = -1
         self.current_epoch = -1
         self.turn_wait_ms = 0.0
@@ -2305,6 +2388,15 @@ class BasalGanglia3DTimingEngineV2:
         dt: float,
         self_surprise: float = 0.0,
     ) -> Dict[str, Any]:
+        composite_threat = max(float(hazard_level), 0.85 * float(local_kinetic_risk))
+        if episode_id != self.current_ep:
+            self.hazard_frac_diff.set_alpha(float(getattr(self.cfg, "frac_memory_alpha", 0.52)))
+            self.hazard_frac_diff.reset(composite_threat)
+            self.last_d_alpha_hazard = 0.0
+        elif respawn_event_flag:
+            self.hazard_frac_diff.reset(composite_threat)
+            self.last_d_alpha_hazard = 0.0
+
         if episode_id != self.current_ep or action_epoch != self.current_epoch:
             if self.current_ep == episode_id and self.turn_wait_ms > 1.0:
                 self.wait_history_ms.append(self.turn_wait_ms)
@@ -2313,6 +2405,10 @@ class BasalGanglia3DTimingEngineV2:
             self.turn_wait_ms = 0.0
             self.net_accum = 0.0
             self.was_holding_this_epoch = False
+
+        self.hazard_frac_diff.set_alpha(float(getattr(self.cfg, "frac_memory_alpha", 0.52)))
+        d_alpha_haz = float(np.clip(self.hazard_frac_diff.step_scalar(composite_threat, dt), -1.5, 1.5))
+        self.last_d_alpha_hazard = d_alpha_haz
 
         t_mode = int(self.cfg.timing_mode)
         if not can_commit_now:
@@ -2335,17 +2431,26 @@ class BasalGanglia3DTimingEngineV2:
                 chosen_cand_idx, 0.8, 0.5, self.turn_wait_ms / 500.0, 1.0, scene_opportunity_prob, local_kinetic_risk, believed_scene_speed,
             )
 
-        # Hyperdirect Emergency Escape Exemption (centralized via SafetyShield): NEVER delay evasive action or exposed escape!
-        if is_bg_emergency_escape_exempt(chosen_verb, in_refuge, hazard_level, local_kinetic_risk, self.cfg):
+        # Hyperdirect Emergency Escape Exemption (augmented by rising fractional danger `d_alpha_haz > 0` in open space!):
+        eff_escape_hazard = float(hazard_level) + (0.28 * max(0.0, d_alpha_haz) if not in_refuge else 0.0)
+        if is_bg_emergency_escape_exempt(chosen_verb, in_refuge, eff_escape_hazard, local_kinetic_risk, self.cfg):
             return self._pack_result(
                 episode_id, action_epoch, t_mode, True, HOLD_GO_CLEAR, False,
                 chosen_cand_idx, 2.2, 0.0, 1.0, 0.45, scene_opportunity_prob, local_kinetic_risk, believed_scene_speed,
             )
 
-        # Compute Direct `Go` drive vs. 4-factor Hyperdirect `STN` brake
-        go_drive = float(np.clip(0.55 + 0.25 * math.tanh(0.35 * q_chosen) + 0.45 * survival_prob + 0.35 * scene_opportunity_prob, 0.15, 2.20))
+        # Compute Direct `Go` drive (+ subsiding-danger counterattack release) vs. 4-factor Hyperdirect `STN` brake
+        counter_window_boost = float(np.clip(-0.30 * min(0.0, d_alpha_haz + 0.04), 0.0, 0.24))
+        go_drive = float(
+            np.clip(
+                0.55 + 0.25 * math.tanh(0.35 * q_chosen) + 0.45 * survival_prob + 0.35 * scene_opportunity_prob + counter_window_boost,
+                0.15,
+                2.25,
+            )
+        )
 
-        crossfire_f = float(local_kinetic_risk) * (1.25 if in_refuge else 0.40)
+        rising_pressure_f = float(np.clip(0.55 * max(0.0, d_alpha_haz), 0.0, 0.45)) if in_refuge else 0.0
+        crossfire_f = float(local_kinetic_risk) * (1.25 if in_refuge else 0.40) + rising_pressure_f
         has_ballistic_target = (int(chosen_cand_idx) != int(CAND_IDX_FRONTIER_TURF)) and (
             float(scene_opportunity_prob) > 0.16 or float(local_kinetic_risk) > 0.05
         )
@@ -2567,6 +2672,7 @@ def run_spatial_timing_3d_process(
                 sp_out["believed_self_pos"],
                 sp_out["believed_entities"],
                 sp_out["believed_count"],
+                dt=dt,
             )
             last_lead_xyz = lead_xyz.copy()
 

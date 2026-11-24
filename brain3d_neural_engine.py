@@ -388,6 +388,7 @@ class WholeBrainNeuralEngineWrapper:
                 "gwt_w": np.zeros(GWT_DIM, dtype=np.float32),
                 "prev_alpha": np.full(5, 0.2, dtype=np.float32),
                 "hab_alpha": np.full(5, 0.2, dtype=np.float32),
+                "hab_alpha_poles": np.full((3, 5), 0.2, dtype=np.float32),
                 "prev_compass": np.zeros(MEM_COMPASS_DIM, dtype=np.float32),
                 "self_s": np.zeros(SELF_MODEL_DIM, dtype=np.float32),
                 "prev_self_err": np.zeros(SELF_MODEL_DIM, dtype=np.float32),
@@ -415,6 +416,8 @@ class WholeBrainNeuralEngineWrapper:
         elif respawn_flag:
             # On mid-episode respawn: keep strategic history & self-schema, softly damp short-term RSSM shock & specialist fatigue
             st["rssm_h"] *= 0.50
+            if "hab_alpha_poles" in st:
+                st["hab_alpha_poles"] = (0.50 * st["hab_alpha_poles"] + 0.50 * 0.20).astype(np.float32)
             st["hab_alpha"] = (0.50 * st["hab_alpha"] + 0.50 * 0.20).astype(np.float32)
             st["prev_slots"] = None
             st["prev_pred_vis8"] = None
@@ -968,8 +971,21 @@ class WholeBrainNeuralEngineWrapper:
             st["rssm_stoch"] = st_np[i].copy()
             st["gwt_w"] = gwt_np[i].copy()
             st["prev_alpha"] = alp_np[i].copy()
-            dishab = np.exp(-0.90 * np.clip(nov5_np[i], 0.0, 2.0))
-            st["hab_alpha"] = np.clip(0.80 * (st["hab_alpha"] * dishab + 0.20 * (1.0 - dishab)) + 0.20 * alp_np[i], 0.02, 0.98).astype(np.float32)
+            # v2.3.2 3-Pole Mittag-Leffler Cortical Adaptation (`tau ~ 0.35s, 1.8s, 9.0s` at ~12Hz GWT)
+            dishab = np.exp(-0.90 * np.clip(nov5_np[i], 0.0, 2.0)).astype(np.float32)
+            poles3 = st.get("hab_alpha_poles")
+            if poles3 is None or poles3.shape != (3, 5):
+                poles3 = np.tile(st["hab_alpha"][None, :], (3, 1)).astype(np.float32)
+            dec3 = np.array([0.78, 0.954, 0.991], dtype=np.float32)[:, None]
+            dishab_mat = np.stack([dishab, np.sqrt(dishab), 0.65 + 0.35 * dishab], axis=0)
+            relaxed3 = poles3 * dishab_mat + 0.20 * (1.0 - dishab_mat)
+            poles3 = np.clip(dec3 * relaxed3 + (1.0 - dec3) * alp_np[i][None, :], 0.02, 0.98).astype(np.float32)
+            st["hab_alpha_poles"] = poles3
+            ml_w3 = compute_mittag_leffler_weights(
+                float(getattr(self.cfg, "frac_memory_alpha", 0.52)),
+                np.array([5.08, 1.0, 0.197], dtype=np.float64),
+            )
+            st["hab_alpha"] = np.clip(ml_w3 @ poles3, 0.02, 0.98).astype(np.float32)
             st["prev_compass"] = compasses[i].copy()
             st["self_s"] = self_np[i].copy()
             st["prev_self_err"] = serr_np[i].copy()

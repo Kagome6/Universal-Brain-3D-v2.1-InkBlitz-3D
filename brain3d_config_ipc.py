@@ -346,6 +346,173 @@ class Brain3DConfig:
     stn_stealth_gain: float = 1.0
     broca_prior_gain: float = 1.0
     policy_temp: float = 0.34
+    frac_memory_alpha: float = 0.52           # v2.3.2 Fractional calculus order alpha in [0.20, 0.88] (smaller = longer power-law tail)
+
+
+# ==============================================================================
+# 1.25 Real-Time O(1) Diffusive Fractional Calculus Kernels (v2.3.2, Zero-PyTorch)
+# ==============================================================================
+_ML_QUAD_LOG_R = np.linspace(-3.50, 3.50, 8, dtype=np.float64)
+_ML_QUAD_R = np.exp(_ML_QUAD_LOG_R)
+
+
+def compute_mittag_leffler_weights(alpha: float, rel_rates: np.ndarray) -> np.ndarray:
+    """
+    Gorenflo-Mainardi positive spectral weights for Mittag-Leffler relaxation `E_alpha(-u^alpha)`:
+      - Strictly positive (`w_k > 0`, `sum(w_k) == 1.0`) for all `alpha in (0.08, 0.96)`.
+      - Concentrates around `r = 1` as `alpha -> 1` (recovering standard exponential decay),
+        and broadens across fast + slow poles as `alpha` decreases (fast initial drop + `t^-alpha` heavy tail).
+    """
+    a = float(np.clip(alpha, 0.12, 0.94))
+    r_pow = np.power(np.maximum(1e-6, np.asarray(rel_rates, dtype=np.float64)), a)
+    cos_pa = math.cos(math.pi * a)
+    denom = np.maximum(1e-9, r_pow * r_pow + 2.0 * r_pow * cos_pa + 1.0)
+    w = r_pow / denom
+    w_sum = float(np.sum(w))
+    if w_sum <= 1e-12:
+        return np.full(r_pow.shape, 1.0 / float(max(1, r_pow.size)), dtype=np.float32)
+    return (w / w_sum).astype(np.float32)
+
+
+def eval_mittag_leffler_survival(elapsed_sec: float, rate_per_sec: float, alpha: float = 0.52) -> float:
+    """
+    Closed-form 6-pole diffusive approximation of `E_alpha(-(rate * t)^alpha)` in `[0.0, 1.0]`:
+      - Exact `1.0` at `t = 0`.
+      - Rapid short-term responsiveness right after losing sight, paired with an algebraic
+        `t^-alpha` heavy vigilance tail for POMDP unseen threats.
+    """
+    u = max(0.0, float(elapsed_sec) * max(0.0, float(rate_per_sec)))
+    if u <= 1e-7:
+        return 1.0
+    a = float(np.clip(alpha, 0.15, 0.94))
+    r_pow = np.power(_ML_QUAD_R, a)
+    denom = np.maximum(1e-9, r_pow * r_pow + 2.0 * r_pow * math.cos(math.pi * a) + 1.0)
+    w = r_pow / denom
+    surv = float(np.sum(w * np.exp(-_ML_QUAD_R * u)) / max(1e-12, float(np.sum(w))))
+    return float(np.clip(surv, 0.0, 1.0))
+
+
+class CaputoFractionalDiffO1:
+    """
+    Unconditionally-stable `O(1)` Multi-Pole Diffusive Caputo Fractional Differentiator `^C D_t^alpha x(t)` [v2.3.2]:
+      - Approximates `(1 / Gamma(1 - alpha)) * int_0^t (t - tau)^(-alpha) x'(tau) d tau` using `K = 4`
+        geometrically spaced exponential relaxation poles (`tau in [0.08s .. 10.0s]`), zero history ring buffer.
+      - Exact Caputo invariance on constants (`D^alpha(c) == 0.0` from frame 0 onward).
+      - Analytically calibrated at `t_ref = 1.0s` so unit ramp `x(t) = v * t` yields `v / Gamma(2 - alpha)`.
+    """
+
+    def __init__(
+        self,
+        dim: int = 1,
+        alpha: float = 0.52,
+        tau_poles: Tuple[float, ...] = (0.08, 0.40, 2.00, 10.0),
+    ):
+        self.dim = max(1, int(dim))
+        self.taus = np.asarray(tau_poles, dtype=np.float64)
+        self.lambdas = 1.0 / np.maximum(1e-3, self.taus)
+        self.num_poles = int(self.lambdas.size)
+        self.alpha = -1.0
+        self._weights = np.zeros(self.num_poles, dtype=np.float64)
+        self._z = np.zeros((self.num_poles, self.dim), dtype=np.float64)
+        self._x_prev = np.zeros(self.dim, dtype=np.float64)
+        self._initialized = False
+        self.set_alpha(alpha)
+
+    def set_alpha(self, alpha: float) -> None:
+        a = float(np.clip(alpha, 0.15, 0.92))
+        if abs(a - self.alpha) < 1e-4:
+            return
+        self.alpha = a
+        raw_w = np.power(self.lambdas, a)
+        # Calibrate unit-ramp response at `t_ref = 1.0s` to exact Caputo `1 / Gamma(2 - alpha)`
+        ramp_1s = float(np.sum(raw_w * (1.0 - np.exp(-self.lambdas)) / self.lambdas))
+        target_1s = 1.0 / math.gamma(2.0 - a)
+        scale = target_1s / max(1e-9, ramp_1s)
+        self._weights = raw_w * scale
+
+    def reset(self, x0: Optional[Any] = None) -> None:
+        self._z.fill(0.0)
+        if x0 is not None:
+            arr = np.asarray(x0, dtype=np.float64).reshape(self.dim)
+            if bool(np.all(np.isfinite(arr))):
+                self._x_prev[:] = arr
+                self._initialized = True
+                return
+        self._x_prev.fill(0.0)
+        self._initialized = False
+
+    def step(self, x: Any, dt: float) -> np.ndarray:
+        arr = np.asarray(x, dtype=np.float64).reshape(self.dim)
+        if not bool(np.all(np.isfinite(arr))):
+            return np.zeros(self.dim, dtype=np.float32)
+        if not self._initialized:
+            self._x_prev[:] = arr
+            self._z.fill(0.0)
+            self._initialized = True
+            return np.zeros(self.dim, dtype=np.float32)
+
+        dt_c = max(1e-4, float(dt))
+        dx = arr - self._x_prev
+        self._x_prev[:] = arr
+
+        decays = np.exp(-self.lambdas * dt_c)
+        gains = (1.0 - decays) / np.maximum(1e-7, self.lambdas * dt_c)
+        self._z = decays[:, None] * self._z + gains[:, None] * dx[None, :]
+        out = self._weights @ self._z
+        return out.astype(np.float32)
+
+    def step_scalar(self, x_val: float, dt: float) -> float:
+        return float(self.step(np.array([float(x_val)], dtype=np.float64), dt)[0])
+
+
+class MittagLefflerAdaptationBankO1:
+    """
+    `O(1)` Multi-Timescale Fractional Synaptic Adaptation Bank (Lundstrom et al., 2008) [v2.3.2]:
+      - Represents neocortical / homeostatic power-law adaptation via `K` exponential conductances
+        weighted by the Gorenflo-Mainardi Mittag-Leffler spectrum of order `alpha`.
+      - Fast poles respond & recover quickly during brief purposeful bursts, while slow poles
+        accumulate genuine multi-second behavioral lock-in with a smooth `t^-alpha` refractory tail.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        alpha: float = 0.52,
+        tau_poles: Tuple[float, ...] = (0.32, 1.40, 6.00, 22.0),
+        init_val: float = 0.0,
+    ):
+        self.dim = max(1, int(dim))
+        self.taus = np.asarray(tau_poles, dtype=np.float32)
+        self.lambdas = (1.0 / np.maximum(1e-3, self.taus)).astype(np.float32)
+        lam_med = float(math.sqrt(float(self.lambdas[0]) * float(self.lambdas[-1])))
+        self.rel_rates = (self.lambdas / max(1e-6, lam_med)).astype(np.float64)
+        self.num_poles = int(self.lambdas.size)
+        self.init_val = float(init_val)
+        self.alpha = 0.52
+        self.weights = compute_mittag_leffler_weights(alpha, self.rel_rates)
+        self.poles = np.full((self.num_poles, self.dim), self.init_val, dtype=np.float32)
+
+    def set_alpha(self, alpha: float) -> None:
+        a = float(np.clip(alpha, 0.15, 0.92))
+        if abs(a - self.alpha) < 1e-4:
+            return
+        self.alpha = a
+        self.weights = compute_mittag_leffler_weights(a, self.rel_rates)
+
+    def reset(self, val: Optional[float] = None) -> None:
+        v = self.init_val if val is None else float(val)
+        self.poles.fill(v)
+
+    def scale_all(self, factor: float) -> None:
+        self.poles *= float(factor)
+
+    def readout(self) -> np.ndarray:
+        return np.clip(self.weights @ self.poles, 0.0, 1.0).astype(np.float32)
+
+    def decay_step(self, dt: float) -> None:
+        dt_c = max(1e-4, float(dt))
+        dec = np.exp(-self.lambdas * dt_c).astype(np.float32)
+        self.poles *= dec[:, None]
 
 
 # ==============================================================================
@@ -479,6 +646,7 @@ def extract_brain_genes_from_cfg(cfg: Brain3DConfig) -> Dict[str, Any]:
         "policy_temp": float(np.clip(getattr(cfg, "policy_temp", 0.34), 0.15, 0.85)),
         "survival_veto_threshold": float(np.clip(getattr(cfg, "survival_veto_threshold", 0.42), 0.25, 0.62)),
         "scaffold_prior_scale": float(np.clip(getattr(cfg, "scaffold_prior_scale", 1.0), 0.0, 1.0)),
+        "frac_memory_alpha": float(np.clip(getattr(cfg, "frac_memory_alpha", 0.52), 0.20, 0.88)),
     }
 
 
@@ -517,6 +685,8 @@ def apply_checkpoint_genes_to_cfg(cfg: Brain3DConfig, genes: Optional[Dict[str, 
         cfg.survival_veto_threshold = float(np.clip(float(genes["survival_veto_threshold"]), 0.25, 0.62))
     if "scaffold_prior_scale" in genes:
         cfg.scaffold_prior_scale = float(np.clip(float(genes["scaffold_prior_scale"]), 0.0, 1.0))
+    if "frac_memory_alpha" in genes:
+        cfg.frac_memory_alpha = float(np.clip(float(genes["frac_memory_alpha"]), 0.20, 0.88))
     return cfg
 
 

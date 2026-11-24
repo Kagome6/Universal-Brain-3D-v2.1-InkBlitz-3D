@@ -1022,9 +1022,76 @@ def run_full_self_verification() -> bool:
         phi_rg, _ = compute_oizumi_phi_g_2016(hist_ring)
         assert phi_rg > 0.22, f"Oizumi Phi_G too low on irreducible 5-module causal loop: {phi_rg:.4f}b"
 
+        # Verify v2.3.2 O(1) Fractional Calculus Kernels (`Barrier 1` Zero-PyTorch):
+        #   (1) Mittag-Leffler heavy tail (`alpha=0.38`) > exponential tail (`alpha=0.92`) at long `u=4.5`
+        #   (2) Caputo `D^alpha(const) == 0.0`, calibrated unit ramp `D^alpha(t)|_{t=1s} ~= 1/Gamma(2-alpha)`,
+        #       and high-frequency strafe juke attenuation vs `D^1`
+        #   (3) Basal Ganglia proactive rising-hazard escape vs subsiding-hazard counterattack asymmetry
+        ml_long_heavy = eval_mittag_leffler_survival(4.5, 1.0, alpha=0.38)
+        ml_long_exp = eval_mittag_leffler_survival(4.5, 1.0, alpha=0.92)
+        assert eval_mittag_leffler_survival(0.0, 1.0, alpha=0.52) == 1.0
+        assert ml_long_heavy > ml_long_exp * 3.0, (
+            f"Mittag-Leffler heavy tail failed: alpha0.38={ml_long_heavy:.4f} vs alpha0.92={ml_long_exp:.4f}"
+        )
+
+        fdiff = CaputoFractionalDiffO1(dim=1, alpha=0.55)
+        for _ in range(10):
+            assert abs(fdiff.step_scalar(0.42, 1.0 / 60.0)) < 1e-7, "Caputo derivative of constant must be exact 0!"
+        fdiff.reset(0.0)
+        val_1s = 0.0
+        for step_r in range(1, 61):
+            val_1s = fdiff.step_scalar(step_r / 60.0, 1.0 / 60.0)
+        expected_1s = 1.0 / math.gamma(2.0 - 0.55)
+        assert abs(val_1s - expected_1s) < 0.06, f"Caputo unit-ramp calibration off: got {val_1s:.4f}, expected {expected_1s:.4f}"
+
+        # Cerebellar FO-PD^mu strafe-juke suppression check:
+        cereb_juke = Cerebellar3DKinematicPredictorV2(Brain3DConfig(task_profile="turf_objective", frac_memory_alpha=0.45))
+        ent_buf = np.zeros((MAX_ENTITIES, ENTITY_DIM), dtype=np.float32)
+        lead_xs_frac: List[float] = []
+        raw_extrap_xs: List[float] = []
+        for tk in range(24):
+            t_s = tk / 60.0
+            omega = 22.0  # Fast ~3.5Hz left-right strafe juke
+            px_j = 1.2 * math.sin(omega * t_s)
+            vx_j = 1.2 * omega * math.cos(omega * t_s)
+            ent_buf[0] = [101.0, px_j, 1.0, 8.0, vx_j, 0.0, 0.0, 0.5, float(SemanticTag.OPPONENT_AGENT), 0.95]
+            ld_j, _, _, _ = cereb_juke.predict_lead_and_crossfire(np.array([0.0, 1.0, 0.0], dtype=np.float32), ent_buf, 1, dt=1.0 / 60.0)
+            if tk >= 8:
+                lead_xs_frac.append(abs(float(ld_j[0])))
+                raw_extrap_xs.append(abs(px_j + vx_j * (8.0 / 22.0)))
+        assert float(np.mean(lead_xs_frac)) < float(np.mean(raw_extrap_xs)) * 0.85, (
+            f"Cerebellar FO-PD failed to damp strafe-juke overshoot: frac={np.mean(lead_xs_frac):.3f} vs raw={np.mean(raw_extrap_xs):.3f}"
+        )
+
+        # Basal Ganglia rising vs subsiding fractional danger asymmetry at identical instantaneous hazard=0.36:
+        bg_rise = BasalGanglia3DTimingEngineV2(Brain3DConfig())
+        bg_fall = BasalGanglia3DTimingEngineV2(Brain3DConfig())
+        for k_h in range(12):
+            h_r = 0.05 + (0.31 * k_h / 11.0)
+            h_f = 0.72 - (0.36 * k_h / 11.0)
+            res_r = bg_rise.step(
+                episode_id=1, action_epoch=1, can_commit_now=True, chosen_cand_idx=2, s1_fast_cand_idx=2,
+                chosen_verb=VERB_RELEASE_PLACE, q_chosen=0.5, survival_prob=0.80, scene_opportunity_prob=0.35,
+                local_kinetic_risk=h_r * 0.6, believed_scene_speed=2.0, mean_fog=0.3, saccade_hold_active=False,
+                respawn_event_flag=False, coach_brake=False, in_refuge=True, tank_level=0.75, hazard_level=h_r,
+                step_reward=0.0, dt=1.0 / 60.0,
+            )
+            res_f = bg_fall.step(
+                episode_id=1, action_epoch=1, can_commit_now=True, chosen_cand_idx=2, s1_fast_cand_idx=2,
+                chosen_verb=VERB_RELEASE_PLACE, q_chosen=0.5, survival_prob=0.80, scene_opportunity_prob=0.35,
+                local_kinetic_risk=h_f * 0.6, believed_scene_speed=2.0, mean_fog=0.3, saccade_hold_active=False,
+                respawn_event_flag=False, coach_brake=False, in_refuge=True, tank_level=0.75, hazard_level=h_f,
+                step_reward=0.0, dt=1.0 / 60.0,
+            )
+        assert res_r["stn_brake"] > res_f["stn_brake"] and res_f["go_drive"] > res_r["go_drive"], (
+            f"BG fractional hazard asymmetry failed: rise(stn={res_r['stn_brake']:.3f},go={res_r['go_drive']:.3f}) "
+            f"vs fall(stn={res_f['stn_brake']:.3f},go={res_f['go_drive']:.3f})"
+        )
+
         print(
             "[PASS] Stage 7: N-Step 1s/3s Separation, Multi-Slot Isolation, Efference Sync, Causal PosEmb, "
             f"Oizumi-2016 Phi_G (`noise={phi_cn:.3f}b`, `split={phi_sp:.3f}b/mask={mask_sp}`, `ring={phi_rg:.2f}b`), "
+            f"Fractional Calculus v2.3.2 (`ML={ml_long_heavy:.2f}>{ml_long_exp:.2f}`, `D^a={val_1s:.2f}`), "
             "Non-Blocking TCP Survival, BG Single-Count & POMDP/SafetyShield Verified."
         )
 
