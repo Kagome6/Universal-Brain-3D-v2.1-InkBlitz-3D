@@ -1,5 +1,8 @@
-// ObstacleWallFluidSystem.cs — Real-time Bingham-plastic viscous thin-film wall ink & splash physics
+// ObstacleWallFluidSystem.cs — Real-time Fractional Thixotropic Bingham-plastic wall ink & splash physics [v2.3.2]
 // Strictly visual-only (Spectate / Human Play) and restricted to INTERIOR box obstacles (never outer frame walls).
+// Uses a 2-pole Oustaloup fractional viscoelastic fluidity memory (`t^-beta` Scott-Blair structural recovery)
+// so fresh impacts slump rapidly into distinct hanging fingers with plump glossy meniscus bulbs & 3D pinch-off drops,
+// then thicken and arrest cleanly into physical 3D-looking paint beads.
 // Zero AI raycast, collider, wall-climb, or training-mode throughput side effects.
 using System;
 using System.Collections.Generic;
@@ -12,9 +15,11 @@ namespace InkBlitz3D
         [Header("Simulation & Quality (Visual-Only, Auto-Bypassed in Fast Training)")]
         public bool enableVisualWallFluid = true;
         public float pixelsPerMeter = 24.0f;
-        public float binghamYieldThickness = 0.26f;
-        public float gravityMobilityGain = 2.85f;
-        public float maxDripSpeedMps = 0.92f;
+        public float binghamYieldThickness = 0.24f;
+        public float gravityMobilityGain = 3.65f;
+        public float maxDripSpeedMps = 1.48f;
+        [Range(0.25f, 0.85f)]
+        public float fractionalThixotropyBeta = 0.58f;
 
         private const float SimStepDt = 1f / 30f;
         private const float VWallTop = 0.78f;
@@ -55,6 +60,11 @@ namespace InkBlitz3D
             public float[] h;          // Physical ink film thickness (>= 0)
             public float[] hNext;      // Scratch advection buffer
             public float[] vy;         // Downward lubrication film velocity (m/s)
+            public float[] thixFast;   // Fast shear-fluidity pole (tau ~ 0.30s) for fractional Scott-Blair memory
+            public float[] thixSlow;   // Slow shear-fluidity pole (tau ~ 2.40s) for power-law gelation tail
+            public float[] thixFastNext;
+            public float[] thixSlowNext;
+            public float[] colChannel; // Smooth horizontal micro-channel guide focusing distinct rivulet fingers
             public sbyte[] team;       // +1 Team A, -1 Team B, 0 Dry
             public sbyte[] teamNext;
             public float[] yieldMap;   // Spatially correlated micro-roughness yield stress threshold
@@ -127,6 +137,50 @@ namespace InkBlitz3D
         }
 
         public bool IsRegisteredObstacle(Collider col) => col != null && _surfaceByCollider.ContainsKey(col);
+
+        public float GetObstacleMassWeightedMeanRow(Collider col)
+        {
+            if (col == null || !_surfaceByCollider.TryGetValue(col, out ObstacleFluidSurface s))
+                return -1f;
+            double weightedSum = 0.0;
+            double massSum = 0.0;
+            for (int y = 0; y < s.wallRows; y++)
+            {
+                int row = y * s.texW;
+                for (int x = 0; x < s.texW; x++)
+                {
+                    float hv = s.h[row + x];
+                    if (hv > 1e-4f)
+                    {
+                        weightedSum += (double)y * hv;
+                        massSum += hv;
+                    }
+                }
+            }
+            return massSum > 1e-5 ? (float)(weightedSum / massSum) : -1f;
+        }
+
+        public float GetObstacleMeanFluidity(Collider col)
+        {
+            if (col == null || !_surfaceByCollider.TryGetValue(col, out ObstacleFluidSurface s))
+                return 0f;
+            float beta = Mathf.Clamp(fractionalThixotropyBeta, 0.25f, 0.85f);
+            float wFast = Mathf.Clamp01(0.42f + 0.42f * beta);
+            float wSlow = 1.0f - wFast;
+            double phiSum = 0.0;
+            double massSum = 0.0;
+            int count = s.texW * s.wallRows;
+            for (int i = 0; i < count; i++)
+            {
+                float hv = s.h[i];
+                if (hv > 0.05f)
+                {
+                    phiSum += (wFast * s.thixFast[i] + wSlow * s.thixSlow[i]) * hv;
+                    massSum += hv;
+                }
+            }
+            return massSum > 1e-5 ? (float)(phiSum / massSum) : 0f;
+        }
 
         public bool ShouldSimulateVisualFluid()
         {
@@ -277,6 +331,11 @@ namespace InkBlitz3D
                 h = new float[totalPx],
                 hNext = new float[totalPx],
                 vy = new float[totalPx],
+                thixFast = new float[totalPx],
+                thixSlow = new float[totalPx],
+                thixFastNext = new float[totalPx],
+                thixSlowNext = new float[totalPx],
+                colChannel = new float[texW],
                 team = new sbyte[totalPx],
                 teamNext = new sbyte[totalPx],
                 yieldMap = new float[totalPx],
@@ -298,6 +357,7 @@ namespace InkBlitz3D
                 float ph1 = Hash01(sSeed + 11u) * Mathf.PI * 2f;
                 float ph2 = Hash01(sSeed + 29u) * Mathf.PI * 2f;
                 colRough[x] = 0.5f + 0.28f * Mathf.Sin(ang1 + ph1) + 0.22f * Mathf.Cos(ang2 + ph2);
+                surf.colChannel[x] = Mathf.Clamp01(1f - colRough[x]);
             }
 
             Color32 cBase = ToColor32(baseStoneColor, 1.00f);
@@ -517,6 +577,8 @@ namespace InkBlitz3D
                 if (!s.hasAnyInk) continue;
                 Array.Clear(s.h, 0, s.h.Length);
                 Array.Clear(s.vy, 0, s.vy.Length);
+                Array.Clear(s.thixFast, 0, s.thixFast.Length);
+                Array.Clear(s.thixSlow, 0, s.thixSlow.Length);
                 Array.Clear(s.team, 0, s.team.Length);
                 Array.Copy(s.baseDryPixels, s.pixels, s.pixels.Length);
                 s.hasAnyInk = false;
@@ -728,8 +790,8 @@ namespace InkBlitz3D
             int radX = Mathf.Clamp(Mathf.CeilToInt((effRadiusM * shearStretch) / Mathf.Max(0.01f, surf.cellWidthM)), 3, surf.texW / 2 - 1);
             int radY = Mathf.Clamp(Mathf.CeilToInt((effRadiusM * shearStretch) / Mathf.Max(0.01f, surf.cellHeightM)), 3, surf.wallRows - 1);
 
-            float corePeakH = isBlast ? 1.08f : 0.74f;
-            float impactDownVy = Mathf.Clamp(-vVert * 0.04f + 0.20f, 0.05f, maxDripSpeedMps);
+            float corePeakH = isBlast ? 1.28f : 0.92f;
+            float impactDownVy = Mathf.Clamp(-vVert * 0.05f + 0.42f, 0.16f, maxDripSpeedMps);
             float phase = NextRand01() * Mathf.PI * 2f;
             float phase2 = NextRand01() * Mathf.PI * 2f;
 
@@ -758,20 +820,22 @@ namespace InkBlitz3D
                     float effR = rNorm / Mathf.Max(0.65f, lobe);
                     if (effR > 1.0f) continue;
 
-                    // Thick center (> yield stress -> drips!) + thin pinned splatter rim (<= yield stress -> stays crisp!)
+                    // Thick sheared core + lower-belly accumulation (feeds pronounced hanging drip fingers!)
+                    float bellyBias = (dy < 0) ? (1.0f + 0.24f * Mathf.Clamp01(-dy / (float)Mathf.Max(2, radY))) : 0.92f;
+                    float chanBoost = 0.84f + 0.34f * surf.colChannel[px];
                     float addH;
-                    if (effR < 0.62f)
+                    if (effR < 0.66f)
                     {
-                        float tCore = effR / 0.62f;
-                        addH = corePeakH * (1f - 0.52f * tCore * tCore);
+                        float tCore = effR / 0.66f;
+                        addH = corePeakH * bellyBias * chanBoost * (1f - 0.50f * tCore * tCore);
                     }
                     else
                     {
-                        float tRim = (effR - 0.62f) / 0.38f;
-                        addH = binghamYieldThickness * 0.86f * (1f - tRim);
+                        float tRim = (effR - 0.66f) / 0.34f;
+                        addH = binghamYieldThickness * 0.82f * (1f - tRim);
                     }
 
-                    DepositInkCell(surf, row + px, tSign, addH, impactDownVy * (1f - 0.5f * effR));
+                    DepositInkCell(surf, row + px, tSign, addH, impactDownVy * (1f - 0.42f * effR), shearAgitation: effR < 0.72f ? 1.0f : 0.25f);
                 }
             }
 
@@ -804,13 +868,13 @@ namespace InkBlitz3D
             surf.textureDirty = true;
         }
 
-        private static void DepositInkCell(ObstacleFluidSurface surf, int idx, sbyte tSign, float addH, float initialVy)
+        private static void DepositInkCell(ObstacleFluidSurface surf, int idx, sbyte tSign, float addH, float initialVy, float shearAgitation = 0.85f)
         {
             if (addH <= 1e-4f) return;
             sbyte prevTeam = surf.team[idx];
             if (prevTeam == 0 || prevTeam == tSign)
             {
-                surf.h[idx] = Mathf.Min(1.55f, surf.h[idx] + addH);
+                surf.h[idx] = Mathf.Min(1.75f, surf.h[idx] + addH);
                 surf.team[idx] = tSign;
             }
             else
@@ -818,7 +882,7 @@ namespace InkBlitz3D
                 // Opposing ink washes over / displaces prior coat when thicker, or neutralizes down before recoloring
                 if (addH >= surf.h[idx] * 0.55f)
                 {
-                    surf.h[idx] = Mathf.Clamp(addH + 0.25f * surf.h[idx], 0.12f, 1.55f);
+                    surf.h[idx] = Mathf.Clamp(addH + 0.25f * surf.h[idx], 0.12f, 1.75f);
                     surf.team[idx] = tSign;
                 }
                 else
@@ -828,6 +892,10 @@ namespace InkBlitz3D
             }
             if (initialVy > surf.vy[idx])
                 surf.vy[idx] = initialVy;
+            if (shearAgitation > surf.thixFast[idx])
+                surf.thixFast[idx] = shearAgitation;
+            if (shearAgitation * 0.90f > surf.thixSlow[idx])
+                surf.thixSlow[idx] = shearAgitation * 0.90f;
         }
 
         private static void ExpandActiveColumnWindow(ObstacleFluidSurface surf, int minCol, int maxCol)
@@ -900,8 +968,22 @@ namespace InkBlitz3D
             int rows = s.wallRows;
             float invDy = 1f / Mathf.Max(0.012f, s.cellHeightM);
 
-            Array.Copy(s.h, 0, s.hNext, 0, w * rows);
-            Array.Copy(s.team, 0, s.teamNext, 0, w * rows);
+            // 2-pole Oustaloup fractional viscoelastic memory weights (`t^-beta` Scott-Blair recovery):
+            // high beta -> fast initial slump followed by sharp arrest; low beta -> longer creeping tail.
+            float beta = Mathf.Clamp(fractionalThixotropyBeta, 0.25f, 0.85f);
+            float wFast = Mathf.Clamp01(0.42f + 0.42f * beta);
+            float wSlow = 1.0f - wFast;
+            float decFast = Mathf.Exp(-dt / 0.32f);
+            float decSlow = Mathf.Exp(-dt / 2.65f);
+
+            int wallCellCount = w * rows;
+            Array.Copy(s.h, 0, s.hNext, 0, wallCellCount);
+            Array.Copy(s.team, 0, s.teamNext, 0, wallCellCount);
+            for (int i = 0; i < wallCellCount; i++)
+            {
+                s.thixFastNext[i] = s.thixFast[i] * decFast;
+                s.thixSlowNext[i] = s.thixSlow[i] * decSlow;
+            }
 
             bool anyStillMobile = false;
 
@@ -910,6 +992,7 @@ namespace InkBlitz3D
                 int gRow = s.groundRow[x];
                 int xl = (x == 0) ? (w - 1) : (x - 1);
                 int xr = (x == w - 1) ? 0 : (x + 1);
+                float chanFocus = s.colChannel[x];
 
                 for (int y = rows - 1; y >= gRow; y--)
                 {
@@ -922,30 +1005,39 @@ namespace InkBlitz3D
                     }
 
                     sbyte tCur = s.team[idx];
-                    float hYield = s.yieldMap[idx];
-                    float hMob = hCur - hYield;
+                    float phiFrac = Mathf.Clamp01(wFast * s.thixFast[idx] + wSlow * s.thixSlow[idx]);
+
+                    // Fractional thixotropic yield & viscosity modulation:
+                    // Immediately after impact (`phiFrac ~ 1.0`), broken polymer network slashes yield threshold (`0.44x`)
+                    // and boosts mobility (`2.5x`) -> unmistakable rapid initial slump!
+                    // As polymer structure recovers (`phiFrac -> 0`), yield rises (`1.34x`) -> freezes into plump paint beads!
+                    float hYieldBase = s.yieldMap[idx];
+                    float effYield = hYieldBase * Mathf.Lerp(1.34f, 0.44f, phiFrac);
+                    float hMob = hCur - effYield;
                     if (hMob <= 0.004f)
                     {
-                        s.vy[idx] *= 0.45f;
+                        s.vy[idx] *= 0.42f;
+                        if (phiFrac > 0.06f && hCur > hYieldBase * 0.55f)
+                            anyStillMobile = true;
                         continue;
                     }
 
                     // At the visible floor line: pool into a base fillet and drip excess onto the floor!
                     if (y == gRow)
                     {
-                        float baseCap = hYield * 1.48f;
+                        float baseCap = hYieldBase * 1.52f;
                         if (hCur > baseCap)
                         {
-                            float runoff = Mathf.Min(hCur - baseCap, 0.35f * hMob);
+                            float runoff = Mathf.Min(hCur - baseCap, 0.40f * hMob);
                             s.hNext[idx] -= runoff;
-                            if (runoff > 0.018f && _arena != null && _arena.turfGrid != null)
+                            if (runoff > 0.016f && _arena != null && _arena.turfGrid != null)
                             {
                                 Vector3 footPos = s.footWorldPos[x];
-                                _arena.turfGrid.PaintVisualDripOnly(footPos, 0.22f + runoff * 0.45f, tCur);
+                                _arena.turfGrid.PaintVisualDripOnly(footPos, 0.24f + runoff * 0.48f, tCur);
                                 Vector3 arenaLoc = footPos - _arena.transform.position;
                                 Vector3 floorN = ArenaStageBuilder.SampleTerrainNormalLocal(arenaLoc.x, arenaLoc.z, _arena.settings);
-                                if (floorN.y < 0.988f && NextRand01() < 0.45f)
-                                    SpawnSingleSlopeRivulet(arenaLoc.x, arenaLoc.z, tCur, 0.28f + runoff);
+                                if (floorN.y < 0.988f && NextRand01() < 0.50f)
+                                    SpawnSingleSlopeRivulet(arenaLoc.x, arenaLoc.z, tCur, 0.30f + runoff);
                             }
                             if (s.hNext[idx] > baseCap + 0.01f)
                                 anyStillMobile = true;
@@ -956,62 +1048,126 @@ namespace InkBlitz3D
                     int idxBelow = (y - 1) * w + x;
                     float hBelow = s.h[idxBelow];
 
-                    // Contact-angle meniscus hysteresis: dry wall below resists wetting until a plump teardrop head forms!
-                    if (hBelow < 0.025f && hCur < hYield * 1.24f)
+                    // Contact-angle meniscus pinning on dry stone below:
+                    // Fluid draining from above piles up into a visibly thick bulbous teardrop head (`hCur > 1.32 * effYield`)
+                    // before breaking the contact line and surging downward!
+                    if (hBelow < 0.028f && hCur < effYield * 1.32f)
                     {
-                        anyStillMobile = (s.vy[idx] > 0.04f);
-                        s.vy[idx] *= 0.60f;
+                        s.vy[idx] *= 0.55f;
+                        if (phiFrac > 0.05f)
+                            anyStillMobile = true;
                         continue;
                     }
 
-                    // Lubrication theory quadratic gravity velocity: v_eq ~ (rho*g / 3*mu) * h_mob^2
-                    float vEq = maxDripSpeedMps * (float)Math.Tanh(gravityMobilityGain * hMob * hMob * 4.2f);
-                    float vyNew = Mathf.Lerp(s.vy[idx], vEq, 0.55f);
+                    float thixMobilityMult = (0.28f + 2.25f * phiFrac) * (0.78f + 0.45f * chanFocus);
+                    float vEq = maxDripSpeedMps * (float)Math.Tanh(gravityMobilityGain * thixMobilityMult * hMob * hMob * 3.8f);
+                    float vyNew = Mathf.Lerp(s.vy[idx], vEq, 0.62f);
                     s.vy[idx] = vyNew;
 
-                    // CFL-bounded upwind downward flux (strictly <= 0.46 * hMob guarantees positivity & conservation!)
-                    float cflFrac = Mathf.Min(0.46f, vyNew * dt * invDy);
-                    float fluxDown = hMob * cflFrac;
-                    if (fluxDown <= 0.0015f)
+                    // CFL-bounded upwind downward flux (leaves a thin stretched glaze stem ~0.14 behind advancing drip head)
+                    float cflFrac = Mathf.Min(0.60f, vyNew * dt * invDy);
+                    float maxDrain = Mathf.Max(0f, hCur - 0.13f);
+                    float fluxDown = Mathf.Min(maxDrain, hMob * cflFrac);
+                    if (fluxDown <= 0.0012f)
+                    {
+                        if (phiFrac > 0.06f)
+                            anyStillMobile = true;
                         continue;
+                    }
 
                     anyStillMobile = true;
                     s.hNext[idx] -= fluxDown;
 
                     if (s.teamNext[idxBelow] == 0 || s.teamNext[idxBelow] == tCur || fluxDown >= s.hNext[idxBelow] * 0.45f)
                         s.teamNext[idxBelow] = tCur;
-                    s.hNext[idxBelow] = Mathf.Min(1.60f, s.hNext[idxBelow] + fluxDown);
-                    if (vyNew * 0.82f > s.vy[idxBelow])
-                        s.vy[idxBelow] = vyNew * 0.82f;
+                    s.hNext[idxBelow] = Mathf.Min(1.78f, s.hNext[idxBelow] + fluxDown);
+                    if (vyNew * 0.86f > s.vy[idxBelow])
+                        s.vy[idxBelow] = vyNew * 0.86f;
 
-                    // Subtle capillary lateral rounding at swollen droplet tips (prevents 1-px needle artifacts)
-                    if (hCur > hYield * 1.55f)
+                    // Advect + mildly shear-rejuvenate fractional fluidity inside active rivulet tips
+                    float advFast = Mathf.Min(1.0f, Mathf.Max(s.thixFast[idx] * decFast, s.thixFastNext[idxBelow]) + 0.10f * fluxDown);
+                    float advSlow = Mathf.Min(1.0f, Mathf.Max(s.thixSlow[idx] * decSlow, s.thixSlowNext[idxBelow]) + 0.05f * fluxDown);
+                    s.thixFastNext[idxBelow] = advFast;
+                    s.thixSlowNext[idxBelow] = advSlow;
+
+                    // Capillary ridge focusing + bulbous tip rounding:
+                    // Pulls thin side film slightly into deeper channel ridges while rounding swollen droplet bulbs (> 1.45 * yield)
+                    int idxL = y * w + xl;
+                    int idxR = y * w + xr;
+                    if (hCur > hYieldBase * 1.48f)
                     {
-                        float latFlux = 0.035f * (hCur - hYield * 1.55f);
-                        int idxL = y * w + xl;
-                        int idxR = y * w + xr;
-                        if (s.h[idxL] + 0.08f < hCur && s.hNext[idx] > latFlux * 2f)
+                        float latFlux = 0.032f * (hCur - hYieldBase * 1.48f);
+                        if (s.h[idxL] + 0.10f < hCur && s.hNext[idx] > latFlux * 2.2f)
                         {
                             s.hNext[idx] -= latFlux;
                             s.hNext[idxL] += latFlux;
                             if (s.teamNext[idxL] == 0) s.teamNext[idxL] = tCur;
                         }
-                        if (s.h[idxR] + 0.08f < hCur && s.hNext[idx] > latFlux * 2f)
+                        if (s.h[idxR] + 0.10f < hCur && s.hNext[idx] > latFlux * 2.2f)
                         {
                             s.hNext[idx] -= latFlux;
                             s.hNext[idxR] += latFlux;
                             if (s.teamNext[idxR] == 0) s.teamNext[idxR] = tCur;
                         }
                     }
+
+                    // 3D Gravity Pinch-Off Droplet: when an advancing drip head swells very heavy mid-wall,
+                    // detach a physical 3D falling ink bead straight down the wall face!
+                    if (hBelow < 0.04f && s.hNext[idxBelow] > 1.24f && y > gRow + 3 && vyNew > 0.24f && NextRand01() < 0.22f)
+                    {
+                        float pinchMass = 0.22f;
+                        s.hNext[idxBelow] -= pinchMass;
+                        SpawnWallPinchoffBead3D(s, x, y - 1, tCur, vyNew);
+                    }
                 }
             }
 
-            Array.Copy(s.hNext, 0, s.h, 0, w * rows);
-            Array.Copy(s.teamNext, 0, s.team, 0, w * rows);
+            Array.Copy(s.hNext, 0, s.h, 0, wallCellCount);
+            Array.Copy(s.teamNext, 0, s.team, 0, wallCellCount);
+            Array.Copy(s.thixFastNext, 0, s.thixFast, 0, wallCellCount);
+            Array.Copy(s.thixSlowNext, 0, s.thixSlow, 0, wallCellCount);
             s.hasMobileInk = anyStillMobile;
 
             RenderSurfacePixels(s, 0, w - 1, includeRoof: false);
             s.textureDirty = true;
+        }
+
+        private void SpawnWallPinchoffBead3D(ObstacleFluidSurface s, int colX, int rowY, int teamSign, float initDownSpeed)
+        {
+            EnsureDropletPool();
+            int slotIdx = -1;
+            float oldest = -1f;
+            for (int i = 0; i < DropletPoolSize; i++)
+            {
+                if (!_droplets[i].active) { slotIdx = i; break; }
+                if (_droplets[i].age > oldest) { oldest = _droplets[i].age; slotIdx = i; }
+            }
+            if (slotIdx < 0) return;
+
+            float uNorm = (colX + 0.5f) / Mathf.Max(1, s.texW);
+            float localY = Mathf.Lerp(-0.5f, 0.5f, (rowY + 0.5f) / Mathf.Max(1, s.wallRows));
+            Vector3 localPt = PerimeterUToLocalPoint(uNorm, localY, s.uFace1, s.uFace2, s.uFace3, out Vector3 localOutN);
+            Vector3 worldPt = s.transform.TransformPoint(localPt + localOutN * 0.035f);
+            Vector3 worldOutN = s.transform.TransformDirection(localOutN).normalized;
+
+            float sc = Mathf.Lerp(0.075f, 0.115f, NextRand01());
+            ref SplashDroplet3D d = ref _droplets[slotIdx];
+            d.active = true;
+            d.teamId = teamSign;
+            d.pos = worldPt;
+            d.vel = worldOutN * 0.18f + Vector3.down * Mathf.Max(0.45f, initDownSpeed * 1.15f);
+            d.age = 0f;
+            d.maxLife = 0.65f;
+            d.baseScale = sc;
+
+            if (d.go != null)
+            {
+                d.go.transform.position = d.pos;
+                d.go.transform.localScale = new Vector3(sc * 0.85f, sc * 1.35f, sc * 0.85f);
+                if (d.renderer != null)
+                    d.renderer.sharedMaterial = (teamSign > 0) ? _dropletMatA : _dropletMatB;
+                d.go.SetActive(true);
+            }
         }
 
         private void RenderSurfacePixels(ObstacleFluidSurface s, int colMin, int colMax, bool includeRoof)
@@ -1046,27 +1202,36 @@ namespace InkBlitz3D
 
                     Color inkC = (t > 0) ? colA : colB;
 
-                    // 3D film-thickness normal relief: top meniscus catches light, swollen bottom drip bead casts subtle lip shadow
+                    // 3D Beer-Lambert film thickness + bulbous meniscus relief:
+                    // Drained thin stems (`h ~ 0.14`) appear slightly glazed over concrete, while swollen drip bulbs (`h > 0.65`)
+                    // show deep pigment saturation, crisp upper wet-gloss specular highlight, and dark bottom lip shadow!
                     int xl = (x == 0) ? (w - 1) : (x - 1);
                     int xr = (x == w - 1) ? 0 : (x + 1);
                     float dhx = s.h[row + xr] - s.h[row + xl];
-                    float dhy = (y < s.wallRows) ? (s.h[rowUp + x] - s.h[rowDn + x]) : 0f;
+                    float hUp = (y < s.wallRows) ? s.h[rowUp + x] : hVal;
+                    float hDn = (y < s.wallRows) ? s.h[rowDn + x] : hVal;
+                    float dhy = hUp - hDn;
 
-                    float relief = Mathf.Clamp((-0.35f * dhx - 0.85f * dhy) * 0.55f, -0.14f, 0.20f);
-                    float thickRichness = Mathf.Clamp(hVal * 0.10f, 0f, 0.08f);
-                    float shade = 1.0f + relief - thickRichness * 0.35f;
+                    // Upper dome of a drip bulb (`hUp < hVal`) catches overhead light; steep lower lip (`hDn << hVal`) casts overhang shadow
+                    float relief = Mathf.Clamp((-0.42f * dhx - 1.25f * dhy) * 0.68f, -0.32f, 0.36f);
+                    float bulbLipShadow = (y < s.wallRows && hVal > 0.34f && hDn < 0.06f) ? 0.22f : 0.0f;
+                    float wetSpecular = (y < s.wallRows && hVal > 0.38f && relief > 0.06f)
+                        ? Mathf.Clamp01((relief - 0.06f) * 2.1f) * Mathf.Clamp01((hVal - 0.32f) * 1.15f)
+                        : 0.0f;
+                    float bodyDepth = Mathf.Clamp((hVal - 0.22f) * 0.14f, -0.04f, 0.12f);
+                    float shade = Mathf.Clamp(1.02f + relief - bulbLipShadow - bodyDepth * 0.45f, 0.56f, 1.32f);
 
-                    float alpha = Mathf.Clamp01(hVal / 0.085f);
-                    // Damp darkened concrete halo right at ultra-thin contact edge
-                    float dryDarken = (alpha < 0.92f) ? 0.88f : 1.0f;
+                    float alpha = Mathf.Clamp01(1.0f - Mathf.Exp(-hVal * 10.5f));
+                    float dryDarken = (alpha < 0.94f) ? 0.85f : 1.0f;
 
                     float br = (basePx.r / 255f) * dryDarken;
                     float bg = (basePx.g / 255f) * dryDarken;
                     float bb = (basePx.b / 255f) * dryDarken;
 
-                    float ir = Mathf.Clamp01(inkC.r * shade + Mathf.Max(0f, relief) * 0.28f);
-                    float ig = Mathf.Clamp01(inkC.g * shade + Mathf.Max(0f, relief) * 0.28f);
-                    float ib = Mathf.Clamp01(inkC.b * shade + Mathf.Max(0f, relief) * 0.28f);
+                    float specLift = wetSpecular * 0.42f + Mathf.Max(0f, relief) * 0.18f;
+                    float ir = Mathf.Clamp01(inkC.r * shade + specLift);
+                    float ig = Mathf.Clamp01(inkC.g * shade + specLift);
+                    float ib = Mathf.Clamp01(inkC.b * shade + specLift);
 
                     s.pixels[idx] = new Color32(
                         (byte)Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(br, ir, alpha) * 255f), 0, 255),
@@ -1302,7 +1467,9 @@ namespace InkBlitz3D
                 }
 
                 float mob = Mathf.Max(0f, r.mass - 0.14f);
-                float targetSpd = Mathf.Min(1.35f, 3.6f * slopeMag * mob);
+                // Fractional power-law thixotropic deceleration `(1 + age / tau0)^(-beta)` on sloped hills
+                float thixSlope = Mathf.Pow(1f + r.age / 0.26f, -Mathf.Clamp(fractionalThixotropyBeta, 0.25f, 0.85f));
+                float targetSpd = Mathf.Min(1.65f, (1.4f + 3.8f * thixSlope) * slopeMag * mob);
                 r.vx = Mathf.Lerp(r.vx, (nrm.x / slopeMag) * targetSpd, 8f * dt);
                 r.vz = Mathf.Lerp(r.vz, (nrm.z / slopeMag) * targetSpd, 8f * dt);
 
