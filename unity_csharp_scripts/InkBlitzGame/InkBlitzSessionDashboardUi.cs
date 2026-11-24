@@ -829,7 +829,9 @@ namespace InkBlitz3D
             float clamped = Mathf.Clamp(scale, 0.5f, 4f);
             spectateTimeScale = clamped;
             Time.timeScale = clamped;
-            float maxSteps = Mathf.Ceil(Mathf.Max(1f, clamped) * 2f);
+            // At <= 1.0x spectate, cap to 1 FixedUpdate per render frame so a minor frame hiccup
+            // never triggers back-to-back blocking TCP lockstep round-trips (30Hz beat judder).
+            float maxSteps = (clamped <= 1.05f) ? 1.25f : Mathf.Ceil(clamped * 1.5f);
             Time.maximumDeltaTime = Mathf.Max(Time.fixedDeltaTime, Time.fixedDeltaTime * maxSteps);
         }
 

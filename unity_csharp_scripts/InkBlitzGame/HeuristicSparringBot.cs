@@ -14,6 +14,10 @@ namespace InkBlitz3D
         private float _weavePhase;
         private bool _refillingTank;
         private int _footShotBurstCount;
+        private int _committedBypassSide;
+        private float _bypassHoldTimer;
+        private Vector3 _stuckAnchorPos;
+        private float _stuckTimer;
 
         private void Awake()
         {
@@ -28,6 +32,19 @@ namespace InkBlitz3D
                 return;
 
             _weavePhase += dt * 2.2f;
+            if (_bypassHoldTimer > 0f)
+                _bypassHoldTimer = Mathf.Max(0f, _bypassHoldTimer - dt);
+            _stuckTimer += dt;
+            if (_stuckTimer >= 1.15f)
+            {
+                if (Vector3.Distance(agent.transform.position, _stuckAnchorPos) < 0.65f && !_refillingTank)
+                {
+                    _committedBypassSide = (_committedBypassSide != 0) ? -_committedBypassSide : ((agent.teamId > 0) ? 1 : -1);
+                    _bypassHoldTimer = 2.0f;
+                }
+                _stuckAnchorPos = agent.transform.position;
+                _stuckTimer = 0f;
+            }
             var cfg = arena.settings ?? new InkBlitzArenaSettings();
 
             // 1. Tank management
@@ -141,6 +158,33 @@ namespace InkBlitz3D
                 }
                 else
                 {
+                    bool hasCoreLos = HasClearLineOfFireToObjective(rm);
+                    if (!hasCoreLos)
+                    {
+                        // Core is occluded by a Stage-2 central baffle wall: do NOT park at 4.6m behind the wall
+                        // shooting into concrete! Flank around the open wing until clear line-of-fire is established.
+                        if (_committedBypassSide == 0 || _bypassHoldTimer <= 0f)
+                        {
+                            float localX = agent.transform.position.x - arena.transform.position.x;
+                            _committedBypassSide = (Mathf.Abs(localX) > 0.5f)
+                                ? (localX >= 0f ? 1 : -1)
+                                : ((agent.teamId > 0) ? -1 : 1);
+                            _bypassHoldTimer = 2.2f;
+                        }
+                        Vector3 flankWp = new Vector3(
+                            arena.transform.position.x + _committedBypassSide * 5.25f,
+                            rmPos.y,
+                            Mathf.Lerp(agent.transform.position.z, rmPos.z, 0.72f));
+                        Vector3 steerWp = SteerAroundLocalObstacle(agent.transform.position, flankWp);
+                        ComputeAimAngles(agent, steerWp + Vector3.up * 0.25f, out float fYaw, out float fPitch);
+                        bool paintAhead = agent.lastFloorValence <= 0.20f && agent.CanCommitNow && agent.InkTank01 > 0.35f;
+                        int fVerb = paintAhead
+                            ? UniversalBrainBridge3D.VERB_RELEASE_PLACE
+                            : (agent.lastFloorValence > 0.25f ? UniversalBrainBridge3D.VERB_EVADE_HAZARD : UniversalBrainBridge3D.VERB_APPROACH_HOVER);
+                        agent.ApplyExternalCommand(steerWp, 1.0f, fVerb, fYaw, paintAhead ? -0.22f : fPitch);
+                        return;
+                    }
+
                     Vector3 dir = (rmPos - agent.transform.position).normalized;
                     float safeStandoff = (rm.IsDetonationFuseActive && rm.FusePopTeam != agent.teamId) ? 4.8f : 4.6f;
                     Vector3 standOff = rmPos - dir * safeStandoff + Vector3.Cross(Vector3.up, dir) * Mathf.Sin(_weavePhase) * 1.2f;
@@ -155,7 +199,31 @@ namespace InkBlitz3D
             }
         }
 
-        private static Vector3 SteerAroundLocalObstacle(Vector3 selfPos, Vector3 targetPos)
+        private bool HasClearLineOfFireToObjective(BlitzCoreObjective rm)
+        {
+            if (rm == null || agent == null)
+                return false;
+            Vector3 origin = agent.eyePivot != null ? agent.eyePivot.position : agent.transform.position + Vector3.up * 1.05f;
+            Vector3 target = rm.transform.position + Vector3.up * 0.25f;
+            Vector3 delta = target - origin;
+            float dist = delta.magnitude;
+            if (dist < 0.8f)
+                return true;
+            float checkDist = Mathf.Max(0.4f, dist - Mathf.Max(0.85f, rm.EffectiveShieldHitRadiusM + 0.2f));
+            if (Physics.Raycast(origin, delta / dist, out RaycastHit hit, checkDist, ~0, QueryTriggerInteraction.Ignore))
+            {
+                if (hit.transform == agent.transform || hit.transform.IsChildOf(agent.transform))
+                    return true;
+                if (hit.collider.GetComponentInParent<BlitzCoreObjective>() != null)
+                    return true;
+                if (hit.collider.GetComponentInParent<InkBlitzPlayerAgent>() != null)
+                    return true;
+                return false;
+            }
+            return true;
+        }
+
+        private Vector3 SteerAroundLocalObstacle(Vector3 selfPos, Vector3 targetPos)
         {
             Vector3 flat = targetPos - selfPos;
             flat.y = 0f;
@@ -163,7 +231,7 @@ namespace InkBlitz3D
             if (dist < 0.8f) return targetPos;
             Vector3 dir = flat / dist;
             Vector3 origin = selfPos + Vector3.up * 0.85f;
-            if (Physics.SphereCast(origin, 0.38f, dir, out RaycastHit hit, Mathf.Min(2.4f, dist), ~0, QueryTriggerInteraction.Ignore))
+            if (Physics.SphereCast(origin, 0.38f, dir, out RaycastHit hit, Mathf.Min(2.8f, dist), ~0, QueryTriggerInteraction.Ignore))
             {
                 if (Mathf.Abs(hit.normal.y) < 0.35f
                     && hit.collider.GetComponentInParent<InkBlitzPlayerAgent>() == null
@@ -171,8 +239,13 @@ namespace InkBlitz3D
                 {
                     Vector3 n = new Vector3(hit.normal.x, 0f, hit.normal.z).normalized;
                     Vector3 tangL = new Vector3(-n.z, 0f, n.x);
-                    Vector3 tang = (Vector3.Dot(tangL, dir) >= 0f) ? tangL : -tangL;
-                    return selfPos + (tang * 0.82f + n * 0.35f).normalized * Mathf.Min(3.2f, dist);
+                    if (_committedBypassSide == 0)
+                    {
+                        _committedBypassSide = (Vector3.Dot(tangL, dir) >= 0f) ? 1 : -1;
+                        _bypassHoldTimer = 1.6f;
+                    }
+                    Vector3 tang = (_committedBypassSide >= 0) ? tangL : -tangL;
+                    return selfPos + (tang * 0.86f + n * 0.32f).normalized * Mathf.Min(3.4f, Mathf.Max(1.8f, dist));
                 }
             }
             return targetPos;

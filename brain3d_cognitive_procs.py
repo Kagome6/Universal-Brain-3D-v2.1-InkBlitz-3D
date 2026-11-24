@@ -64,6 +64,7 @@ class ActionStagnationHomeostasis3D:
         self.prev_pos_xz = np.zeros(2, dtype=np.float32)
         self.ema_initialized = False
         self.stagnation_level = 0.0
+        self.regen_exempt_steps = 0
         self.visit_counts = np.zeros((16, 16), dtype=np.float32)
 
     def reset(self, episode_id: int, pos_xz: np.ndarray) -> None:
@@ -73,6 +74,7 @@ class ActionStagnationHomeostasis3D:
         self.prev_pos_xz = self.pos_ema_xz.copy()
         self.ema_initialized = True
         self.stagnation_level = 0.0
+        self.regen_exempt_steps = 0
         self.visit_counts.fill(0.0)
 
     def on_respawn(self, pos_xz: np.ndarray) -> None:
@@ -80,6 +82,7 @@ class ActionStagnationHomeostasis3D:
         self.pos_ema_xz = np.asarray(pos_xz, dtype=np.float32).copy()
         self.prev_pos_xz = self.pos_ema_xz.copy()
         self.stagnation_level = 0.0
+        self.regen_exempt_steps = 0
 
     def update_and_compute_intrinsic(
         self,
@@ -105,7 +108,15 @@ class ActionStagnationHomeostasis3D:
 
         in_refuge = is_in_stealth_or_cover_refuge(proprio)
         tank = get_resource_tank_level(proprio)
-        legit_regen = in_refuge and (tank < 0.80)
+        if ema_disp >= 1.55 or step_extrinsic_reward > 0.015:
+            self.regen_exempt_steps = 0
+        elif in_refuge and (tank < 0.80):
+            self.regen_exempt_steps += 1
+        else:
+            self.regen_exempt_steps = max(0, self.regen_exempt_steps - 1)
+        # Bound continuous `legit_regen` exemption (~2.0s = 24 cog steps) so shooting a wall on own ink
+        # can NEVER endlessly reset `stagnation_level` back to 0.0!
+        legit_regen = in_refuge and (tank < 0.80) and (self.regen_exempt_steps <= 24)
 
         self.habituation_trace *= 0.88
         c_i = int(np.clip(chosen_idx, 0, NUM_CANDIDATES - 1))
@@ -114,11 +125,11 @@ class ActionStagnationHomeostasis3D:
         elif step_extrinsic_reward <= 0.005 and not legit_regen:
             self.habituation_trace[c_i] = min(1.0, float(self.habituation_trace[c_i]) + 0.16)
 
-        if ema_disp < 1.55 and step_extrinsic_reward <= 0.008 and not legit_regen:
+        if ema_disp >= 1.55 or step_extrinsic_reward > 0.008:
+            self.stagnation_level = max(0.0, self.stagnation_level - 0.20)
+        elif not legit_regen:
             ss_boost = 0.04 * min(1.0, max(0.0, float(self_surprise))) if math.isfinite(self_surprise) else 0.0
             self.stagnation_level = min(1.0, self.stagnation_level + 0.09 + ss_boost)
-        else:
-            self.stagnation_level = max(0.0, self.stagnation_level - 0.20)
 
         # Coarse 16x16 episodic visit count novelty + anti-stagnation metabolic boredom cost
         gx = int(np.clip((float(pxz[0]) - float(self.wmin[0])) / float(self.span[0]) * 16.0, 0, 15))
@@ -429,6 +440,7 @@ def compute_gene_modulated_mip_and_fr(
     strategic_objective_mult: float = 1.0,
     strategic_caution_delta: float = 0.0,
     mip_info_out: Optional[Dict[str, Any]] = None,
+    compute_causal_mip: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, float, float, float, bool]:
     """
     Compute Gene-Modulated Effective Utility `mip_q_star[8]`, Boltzmann Policy `policy_probs[8]`,
@@ -502,8 +514,23 @@ def compute_gene_modulated_mip_and_fr(
         if stag > 0.20:
             if vb == VERB_IDLE_OBSERVE or dn < 0.05:
                 q_star[m] -= 1.15 * stag
-            elif dn >= 0.08:
-                q_star[m] += 0.30 * stag * (scaf_w * max(0.25, max(dot_obj, dot_front)) + (1.0 - scaf_w) * 0.35)
+            else:
+                wn = max(0.0, uz)
+                we = max(0.0, ux)
+                ws = max(0.0, -uz)
+                ww = max(0.0, -ux)
+                w_sum = max(1e-4, wn + we + ws + ww)
+                dir_clr = (
+                    wn * float(mc[MC_CLR_N])
+                    + we * float(mc[MC_CLR_E])
+                    + ws * float(mc[MC_CLR_S])
+                    + ww * float(mc[MC_CLR_W])
+                ) / w_sum
+                if dir_clr < 0.35 and stag > 0.35:
+                    q_star[m] -= 0.75 * stag * ((0.35 - dir_clr) / 0.35)
+                elif dn >= 0.07:
+                    route_align = max(0.0, max(dot_obj, dot_front))
+                    q_star[m] += 0.42 * stag * (0.35 + 0.65 * route_align) * (0.50 + 0.50 * dir_clr)
 
         # Centralized SafetyShield: Anti-Freeze Veto in open space under threat + RSSM Survival Veto
         if shield_on and exposed_threat and vb == VERB_IDLE_OBSERVE:
@@ -575,8 +602,12 @@ def compute_gene_modulated_mip_and_fr(
     q_mip_proj /= np.sum(q_mip_proj)
     phi_act_bits = max(0.0, float(np.sum(p_int_64 * np.log(p_int_64 / q_mip_proj))) / ln2)
 
-    phi_causal_bits, mip_cut_mask = compute_oizumi_phi_g_2016(cortical_mod_history)
-    has_causal_win = cortical_mod_history is not None and len(cortical_mod_history) >= 6
+    if compute_causal_mip:
+        phi_causal_bits, mip_cut_mask = compute_oizumi_phi_g_2016(cortical_mod_history)
+        has_causal_win = cortical_mod_history is not None and len(cortical_mod_history) >= 6
+    else:
+        phi_causal_bits, mip_cut_mask = 0.0, 0x03
+        has_causal_win = False
     if has_causal_win:
         # Primary metric: Oizumi et al. (2016) lagged causal disconnection `Phi_G(X^{t-1}, X^t)`,
         # plus bounded instantaneous policy-override divergence when GWT SafetyShield/WorldModel overrides S1.

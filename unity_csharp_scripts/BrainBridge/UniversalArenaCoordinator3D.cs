@@ -262,7 +262,7 @@ namespace UniversalBrain3D
                 args = $"-B \"{scriptPath}\" --mode play --env unity_tcp --task-profile {taskProfile} --stage-id {stageArgVal} "
                      + $"--policy-mode {modeArg} --hippo-memory-mode {hippoArg}{learnArg}{stratArg} --port {baseTcpPort} --ux-port {baseTcpPort + 100} --parent-pid {unityPid} --watch-stdin{loadArg}";
                 Time.timeScale = 1.0f;
-                Time.maximumDeltaTime = Mathf.Max(Time.fixedDeltaTime, Time.fixedDeltaTime * 2f);
+                Time.maximumDeltaTime = Time.fixedDeltaTime * 1.25f;
             }
             else if (sessionMode == BrainSessionRunMode.SingleArenaSelfPlaySpectate)
             {
@@ -278,7 +278,7 @@ namespace UniversalBrain3D
                 args = $"-B \"{scriptPath}\" --mode spectate --env unity_tcp --task-profile {taskProfile} --stage-id {stageArgVal} "
                      + $"--hippo-memory-mode {hippoArg}{contArg}{radio2v2Arg}{stratArg} --base-port {baseTcpPort} --ux-port {baseTcpPort + 100} --time-scale 1.0 --parent-pid {unityPid} --watch-stdin{loadArg}{oppArg}";
                 Time.timeScale = 1.0f;
-                Time.maximumDeltaTime = Mathf.Max(Time.fixedDeltaTime, Time.fixedDeltaTime * 2f);
+                Time.maximumDeltaTime = Time.fixedDeltaTime * 1.25f;
             }
             else
             {

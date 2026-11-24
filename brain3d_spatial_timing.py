@@ -894,6 +894,92 @@ class MultiLayerCognitiveFieldMap3D:
                 surf_adv[di] = float(np.clip(np.mean(near_acc) * (0.92 if blocked_center else 1.0), 0.0, 1.0))
         return clr, surf_adv
 
+    def has_clear_line_of_fire(
+        self,
+        start_xz: np.ndarray,
+        target_xz: np.ndarray,
+        target_clearance_m: float = 0.95,
+    ) -> bool:
+        """
+        Strictly 1st-person POMDP check on remembered `occ_state`: returns `False` if any observed
+        `WALL` cell lies along the line of fire between `start_xz` and `target_xz` (excluding the
+        target's own bounding radius `target_clearance_m`). Zero ground-truth wallhacks!
+        """
+        dx = float(target_xz[0] - start_xz[0])
+        dz = float(target_xz[1] - start_xz[1])
+        dist = math.hypot(dx, dz)
+        check_d = dist - max(0.35, float(target_clearance_m))
+        if check_d <= 0.30 or dist <= 1e-4:
+            return True
+        ux = dx / dist
+        uz = dz / dist
+        n_steps = max(1, int(math.ceil(check_d / 0.38)))
+        step_m = check_d / float(n_steps)
+        for k in range(1, n_steps + 1):
+            s = min(check_d, float(k) * step_m)
+            if s < 0.28:
+                continue
+            iz, ix = self.world_to_cell(float(start_xz[0]) + ux * s, float(start_xz[1]) + uz * s)
+            if int(self.occ_state[iz, ix]) == self.WALL:
+                return False
+        return True
+
+    def _slide_step_around_observed_wall(self, ego_xz: np.ndarray, target_xz: np.ndarray) -> np.ndarray:
+        """
+        If `ego_xz -> target_xz` crosses an observed `WALL` cell in `occ_state` (e.g. a 1.1m-thick
+        baffle wall where `target_xz` lands in open space on the far side), deflect the step laterally
+        along the clearer wall tangent so `CharacterController` never rams head-on into solid cover.
+        """
+        dx = float(target_xz[0] - ego_xz[0])
+        dz = float(target_xz[1] - ego_xz[1])
+        dist = math.hypot(dx, dz)
+        if dist <= 0.22:
+            return target_xz
+        ux = dx / dist
+        uz = dz / dist
+        hit_wall = False
+        n_steps = max(1, int(math.ceil(dist / 0.35)))
+        for k in range(1, n_steps + 1):
+            s = float(k) * (dist / float(n_steps))
+            iz, ix = self.world_to_cell(float(ego_xz[0]) + ux * s, float(ego_xz[1]) + uz * s)
+            if int(self.occ_state[iz, ix]) == self.WALL:
+                hit_wall = True
+                break
+        if not hit_wall:
+            return target_xz
+
+        # Evaluate left `(-uz, ux)` vs right `(uz, -ux)` lateral slide clearance on observed `occ_state`
+        slide_len = max(1.15, dist)
+        tang_l = np.array([-uz, ux], dtype=np.float32)
+        tang_r = np.array([uz, -ux], dtype=np.float32)
+
+        def _free_score(t_vec: np.ndarray) -> float:
+            sc = 0.0
+            for frac in (0.45, 0.85, 1.25):
+                px = float(ego_xz[0]) + float(t_vec[0]) * slide_len * frac
+                pz = float(ego_xz[1]) + float(t_vec[1]) * slide_len * frac
+                if not (float(self.wmin[0]) + 0.7 <= px <= float(self.wmax[0]) - 0.7 and float(self.wmin[2]) + 0.7 <= pz <= float(self.wmax[2]) - 0.7):
+                    sc -= 1.5
+                    continue
+                jz, jx = self.world_to_cell(px, pz)
+                occ_v = int(self.occ_state[jz, jx])
+                if occ_v == self.WALL:
+                    sc -= 2.0
+                else:
+                    sc += 1.0 + 0.25 * float(self.surface_map[jz, jx])
+            return sc
+
+        sc_l = _free_score(tang_l) + (0.15 if self._committed_flank_side < 0 else 0.0)
+        sc_r = _free_score(tang_r) + (0.15 if self._committed_flank_side > 0 else 0.0)
+        best_tang = tang_l if sc_l >= sc_r else tang_r
+        slid_dir = 0.88 * best_tang - 0.12 * np.array([ux, uz], dtype=np.float32)
+        slid_dir /= max(1e-4, float(np.linalg.norm(slid_dir)))
+        return np.clip(
+            np.asarray(ego_xz, dtype=np.float32) + slid_dir * slide_len,
+            self.wmin[[0, 2]] + 0.65,
+            self.wmax[[0, 2]] - 0.65,
+        )
+
     def smooth_local_step(self, ego_xz: np.ndarray, desired_xz: np.ndarray) -> np.ndarray:
         """Apply soft wall-clearance repulsion so proposed candidate targets never jam into obstacle corners."""
         if _NATIVE_LIB is not None and self.occ_state.flags["C_CONTIGUOUS"]:
@@ -907,7 +993,7 @@ class MultiLayerCognitiveFieldMap3D:
                 float(desired_xz[0]), float(desired_xz[1]),
                 _f32_ptr(out_xz),
             )
-            return out_xz
+            return self._slide_step_around_observed_wall(ego_xz, out_xz)
 
         out_xz = np.clip(
             np.asarray(desired_xz, dtype=np.float32).copy(),
@@ -928,7 +1014,7 @@ class MultiLayerCognitiveFieldMap3D:
                         push = (diff / max(1e-4, d)) if d > 1e-4 else (ego_xz - wc) / max(1e-4, float(np.linalg.norm(ego_xz - wc)))
                         repulse += push * (min_clear - d)
         out_xz = np.clip(out_xz + repulse, self.wmin[[0, 2]] + 0.65, self.wmax[[0, 2]] - 0.65)
-        return out_xz
+        return self._slide_step_around_observed_wall(ego_xz, out_xz)
 
     def export_bus_arrays(self) -> Tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         occ_u8 = np.zeros((FIELD_MAP_MAX_N, FIELD_MAP_MAX_N), dtype=np.uint8)
@@ -1883,10 +1969,16 @@ def propose_universal_3d_candidates(
     d_thr_m = float(mem_compass[MC_THR_DIST]) * max_diag if thr_valid else 999.0
     d_obj_m = float(np.linalg.norm(obj_xyz[[0, 2]] - ego_xz)) if obj_xyz is not None else 999.0
 
-    # M0: Direct Objective / Pedestal Route Advance — keeps safe ~4.25m standoff when breaking a shielded objective!
+    # M0: Direct Objective / Pedestal Route Advance — keeps safe ~4.25m standoff ONLY when line-of-fire is clear!
+    # (If a Stage-2 baffle wall occludes `obj_xyz` in `field_map.occ_state`, follow Dijkstra `obj_dir` around the wall!)
     d_goal_m = float(mem_compass[MC_OBJ_DIST]) * max_diag if float(mem_compass[MC_OBJ_VALID]) > 0.5 else profile.step_move_m
+    obj_los_clear = (
+        field_map.has_clear_line_of_fire(ego_xz, obj_xyz[[0, 2]], target_clearance_m=max(0.85, obj_radius + 0.25))
+        if obj_xyz is not None
+        else True
+    )
     shielded_obj = (not carrying) and (enemy_carrier_xz is None) and (obj_xyz is not None) and (obj_radius >= 1.05)
-    if shielded_obj:
+    if shielded_obj and obj_los_clear:
         to_sh_xz = obj_xyz[[0, 2]] - ego_xz
         d_sh = float(np.linalg.norm(to_sh_xz))
         u_sh = (to_sh_xz / d_sh) if d_sh > 1e-4 else obj_dir
@@ -1903,14 +1995,17 @@ def propose_universal_3d_candidates(
         else:
             verbs[CAND_IDX_OBJECTIVE_ADVANCE] = VERB_APPROACH_HOVER
     else:
-        m0_step = float(np.clip(d_goal_m, 0.25, profile.step_move_m))
+        m0_step = float(np.clip(max(d_goal_m, 1.35 if (shielded_obj and not obj_los_clear) else 0.0), 0.25, profile.step_move_m))
         m0_xz = ego_xz + obj_dir * m0_step
-        m0_yaw, m0_pitch = _aim_yp_toward(lead_aim_xyz if has_lead else obj_xyz, obj_dir)
+        m0_yaw, m0_pitch = _aim_yp_toward(lead_aim_xyz if has_lead else (obj_xyz if obj_los_clear else None), obj_dir)
         poses[CAND_IDX_OBJECTIVE_ADVANCE, 0:3] = _to_norm_pos3(m0_xz)
         poses[CAND_IDX_OBJECTIVE_ADVANCE, 3:6] = [m0_yaw, m0_pitch, 0.94]
-        if on_friendly_surf and d_goal_m > 1.80 and not thr_valid:
+        if on_friendly_surf and m0_step > 1.20 and not thr_valid:
             verbs[CAND_IDX_OBJECTIVE_ADVANCE] = VERB_EVADE_HAZARD
-        elif float(mem_compass[MC_OBJ_VALID]) > 0.5 and d_goal_m <= 1.15 and not on_friendly_surf:
+        elif shielded_obj and (not obj_los_clear) and has_ammo and (not on_friendly_surf):
+            poses[CAND_IDX_OBJECTIVE_ADVANCE, 4] = -0.22
+            verbs[CAND_IDX_OBJECTIVE_ADVANCE] = VERB_RELEASE_PLACE
+        elif float(mem_compass[MC_OBJ_VALID]) > 0.5 and d_goal_m <= 1.15 and not on_friendly_surf and not shielded_obj:
             verbs[CAND_IDX_OBJECTIVE_ADVANCE] = VERB_COMMIT_INTERACT
         else:
             verbs[CAND_IDX_OBJECTIVE_ADVANCE] = VERB_APPROACH_HOVER
@@ -2009,7 +2104,7 @@ def propose_universal_3d_candidates(
         to_obj = obj_xyz[[0, 2]] - ego_xz
         d_obj = float(np.linalg.norm(to_obj))
         u_obj = (to_obj / d_obj) if d_obj > 1e-4 else obj_dir
-        if obj_radius >= 1.05 and has_ammo:
+        if obj_radius >= 1.05 and has_ammo and obj_los_clear:
             standoff_delta = d_obj - 4.50
             lat_weave = np.array([u_obj[1], -u_obj[0]], dtype=np.float32) * 0.75
             m5_xz = ego_xz + u_obj * float(np.clip(standoff_delta, -1.60, profile.step_move_m)) + lat_weave
@@ -2018,16 +2113,19 @@ def propose_universal_3d_candidates(
             poses[CAND_IDX_SHIELD_OR_BURST, 3:6] = [m5_yaw, m5_pitch, 0.88]
             verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_RELEASE_PLACE
         else:
-            r_step_dir = obj_dir if float(mem_compass[MC_OBJ_VALID]) > 0.5 else u_obj
-            m5_step = float(np.clip(d_obj, 0.25, profile.step_move_m))
+            r_step_dir = obj_dir if float(mem_compass[MC_OBJ_VALID]) > 0.5 else flank_dir
+            m5_step = float(np.clip(max(d_obj, 1.50 if not obj_los_clear else 0.0), 0.25, profile.step_move_m))
             m5_xz = ego_xz + r_step_dir * m5_step
-            m5_yaw, m5_pitch = _aim_yp_toward(obj_xyz, r_step_dir)
+            m5_yaw, m5_pitch = _aim_yp_toward(obj_xyz if obj_los_clear else None, r_step_dir)
             poses[CAND_IDX_SHIELD_OR_BURST, 0:3] = _to_norm_pos3(m5_xz)
             poses[CAND_IDX_SHIELD_OR_BURST, 3:6] = [m5_yaw, m5_pitch, 1.00]
-            if d_obj <= 1.65:
+            if d_obj <= 1.65 and obj_radius < 1.05:
                 verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_GRASP_PICK
             elif on_friendly_surf:
                 verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_EVADE_HAZARD
+            elif has_ammo and not obj_los_clear:
+                poses[CAND_IDX_SHIELD_OR_BURST, 4] = -0.22
+                verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_RELEASE_PLACE
             else:
                 verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_APPROACH_HOVER
     elif has_ammo and (has_lead or thr_valid):
@@ -2040,7 +2138,7 @@ def propose_universal_3d_candidates(
         to_obj = obj_xyz[[0, 2]] - ego_xz
         d_obj = float(np.linalg.norm(to_obj))
         u_obj = (to_obj / d_obj) if d_obj > 1e-4 else obj_dir
-        if obj_radius >= 1.05 and has_ammo:
+        if obj_radius >= 1.05 and has_ammo and obj_los_clear:
             standoff_delta = d_obj - 4.80
             lat_weave = np.array([u_obj[1], -u_obj[0]], dtype=np.float32) * 0.75
             m5_xz = ego_xz + u_obj * float(np.clip(standoff_delta, -1.60, profile.step_move_m)) + lat_weave
@@ -2049,16 +2147,19 @@ def propose_universal_3d_candidates(
             poses[CAND_IDX_SHIELD_OR_BURST, 3:6] = [m5_yaw, m5_pitch, 0.88]
             verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_RELEASE_PLACE
         else:
-            r_step_dir = obj_dir if float(mem_compass[MC_OBJ_VALID]) > 0.5 else u_obj
-            m5_step = float(np.clip(d_obj, 0.25, profile.step_move_m))
+            r_step_dir = obj_dir if float(mem_compass[MC_OBJ_VALID]) > 0.5 else flank_dir
+            m5_step = float(np.clip(max(d_obj, 1.50 if not obj_los_clear else 0.0), 0.25, profile.step_move_m))
             m5_xz = ego_xz + r_step_dir * m5_step
-            m5_yaw, m5_pitch = _aim_yp_toward(obj_xyz, r_step_dir)
+            m5_yaw, m5_pitch = _aim_yp_toward(obj_xyz if obj_los_clear else None, r_step_dir)
             poses[CAND_IDX_SHIELD_OR_BURST, 0:3] = _to_norm_pos3(m5_xz)
             poses[CAND_IDX_SHIELD_OR_BURST, 3:6] = [m5_yaw, m5_pitch, 1.00]
-            if d_obj <= 1.65:
+            if d_obj <= 1.65 and obj_radius < 1.05:
                 verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_GRASP_PICK
             elif on_friendly_surf:
                 verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_EVADE_HAZARD
+            elif has_ammo and not obj_los_clear:
+                poses[CAND_IDX_SHIELD_OR_BURST, 4] = -0.22
+                verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_RELEASE_PLACE
             else:
                 verbs[CAND_IDX_SHIELD_OR_BURST] = VERB_APPROACH_HOVER
     elif has_ammo and carrying:

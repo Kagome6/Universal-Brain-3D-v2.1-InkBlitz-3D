@@ -164,6 +164,8 @@ def run_universal_brain_3d_orchestrator(
         meta = load_checkpoint_contract_meta(cfg.load_weights_path)
         if "genes" in meta:
             apply_checkpoint_genes_to_cfg(cfg, meta["genes"])
+        if "scaffold_prior_scale" in meta and ("genes" not in meta or "scaffold_prior_scale" not in meta.get("genes", {})):
+            cfg.scaffold_prior_scale = float(np.clip(float(meta["scaffold_prior_scale"]), 0.0, 1.0))
 
     ctx = mp.get_context("spawn")
     uid = f"B3D2_{os.getpid()}_{int(time.perf_counter_ns() & 0xFFFFF)}"

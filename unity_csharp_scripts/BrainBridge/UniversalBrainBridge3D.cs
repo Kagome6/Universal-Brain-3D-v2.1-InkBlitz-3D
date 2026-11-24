@@ -54,6 +54,7 @@ namespace UniversalBrain3D
         public LayerMask raycastMask = ~0;
         public float foveaHalfAngleDeg = 38f;
         public float foveaMaxRangeM = 16f;
+        [Range(1, 4)] public int foveaCaptureStride = 1; // 1 = 60Hz full rate (HUD agent), 2 = staggered 30Hz reuse on peer bridges
         public MonoBehaviour floorSurfaceSamplerComponent; // Optional component implementing IFloorSurfaceSampler
         public bool isCurrentlyRespawning = false;
         [Range(0f, 0.78f)] public float activeBuffOrTransit01 = 0f; // Somatic buff/special timer in [0..0.78] (< 0.90 respawn threshold)
@@ -87,6 +88,10 @@ namespace UniversalBrain3D
         private readonly byte[] _rxBuf = new byte[UBMC_BYTES];
         private readonly float[] _floatsBuf = new float[1530];
         private readonly float[] _proprio = new float[PROPRIO_DIM];
+        private readonly float[] _cachedFoveaFloats = new float[FOVEA_H * FOVEA_W * FOVEA_C];
+        private bool _hasCachedFovea = false;
+        private readonly Dictionary<Collider, UniversalSemanticEntityTag> _colliderDirectTagCache = new Dictionary<Collider, UniversalSemanticEntityTag>(64);
+        private readonly Dictionary<Collider, UniversalSemanticEntityTag> _colliderParentTagCache = new Dictionary<Collider, UniversalSemanticEntityTag>(128);
         private IFloorSurfaceSampler _surfaceSampler;
         private ulong _foveaSampleSeq = 0;
 
@@ -169,6 +174,9 @@ namespace UniversalBrain3D
             try { _client?.Close(); } catch { }
             _stream = null;
             _client = null;
+            _hasCachedFovea = false;
+            _colliderDirectTagCache.Clear();
+            _colliderParentTagCache.Clear();
         }
 
         public bool IsConnected => _client != null && _client.Connected && _stream != null;
@@ -193,6 +201,9 @@ namespace UniversalBrain3D
             _actionEpoch = 1;
             _pendingRespawnFlag = false;
             _accumStepReward = 0f;
+            _hasCachedFovea = false;
+            _colliderDirectTagCache.Clear();
+            _colliderParentTagCache.Clear();
         }
 
         /// <summary>
@@ -278,7 +289,19 @@ namespace UniversalBrain3D
 
             // 3. Cast 16x16 Foveal Rays + Encode Floor Ink/Turf Surface into Channel 3
             int idxFoveaBase = idxEntBase + MAX_ENTITIES * ENTITY_DIM;
-            CaptureFovealRaycastPatch(idxFoveaBase);
+            int effStride = Mathf.Clamp(foveaCaptureStride, 1, 4);
+            bool forceFreshFovea = !_hasCachedFovea || episodeDone || _pendingRespawnFlag || effStride <= 1
+                                || (((_frameSeq + (ulong)Mathf.Max(0, port)) % (ulong)effStride) == 0UL);
+            if (forceFreshFovea)
+            {
+                CaptureFovealRaycastPatch(idxFoveaBase);
+                Array.Copy(_floatsBuf, idxFoveaBase, _cachedFoveaFloats, 0, _cachedFoveaFloats.Length);
+                _hasCachedFovea = true;
+            }
+            else
+            {
+                Array.Copy(_cachedFoveaFloats, 0, _floatsBuf, idxFoveaBase, _cachedFoveaFloats.Length);
+            }
 
             float eyeYawRad = eyeTransform.eulerAngles.y * Mathf.Deg2Rad;
             float pitchDeg = eyeTransform.eulerAngles.x;
@@ -321,8 +344,8 @@ namespace UniversalBrain3D
             Array.Clear(_txBufV1, cgOffset, 128);
             if (!string.IsNullOrEmpty(caregiverUtterance))
             {
-                byte[] utf8 = Encoding.UTF8.GetBytes(caregiverUtterance);
-                Buffer.BlockCopy(utf8, 0, _txBufV1, cgOffset, Mathf.Min(127, utf8.Length));
+                int charCap = Mathf.Min(caregiverUtterance.Length, 42);
+                Encoding.UTF8.GetBytes(caregiverUtterance, 0, charCap, _txBufV1, cgOffset);
             }
             uint crc = ComputeCrc32(_txBufV1, 0, UB3D_V1_BYTES - 8);
             Buffer.BlockCopy(BitConverter.GetBytes(crc), 0, _txBufV1, UB3D_V1_BYTES - 8, 4);
@@ -373,6 +396,22 @@ namespace UniversalBrain3D
             return e.EstimatedVelocity.magnitude < 2.5f || dist > 2.5f;
         }
 
+        private UniversalSemanticEntityTag GetCachedColliderTag(Collider col, bool includeParents)
+        {
+            if (object.ReferenceEquals(col, null))
+                return null;
+            var dict = includeParents ? _colliderParentTagCache : _colliderDirectTagCache;
+            if (dict.TryGetValue(col, out UniversalSemanticEntityTag cached))
+                return cached;
+            UniversalSemanticEntityTag resolved = includeParents
+                ? col.GetComponentInParent<UniversalSemanticEntityTag>()
+                : col.GetComponent<UniversalSemanticEntityTag>();
+            if (dict.Count > 512)
+                dict.Clear();
+            dict[col] = resolved;
+            return resolved;
+        }
+
         private bool RaycastIgnoringSelf(Vector3 origin, Vector3 dir, float maxDist, out RaycastHit validHit)
         {
             int hitCount = Physics.RaycastNonAlloc(origin, dir, _rayHitsBuf, maxDist, raycastMask, QueryTriggerInteraction.Ignore);
@@ -386,7 +425,7 @@ namespace UniversalBrain3D
                     continue;
                 if (h.collider is CharacterController)
                 {
-                    var hitTag = h.collider.GetComponent<UniversalSemanticEntityTag>();
+                    var hitTag = GetCachedColliderTag(h.collider, includeParents: false);
                     if (hitTag != null && hitTag.isStealthSubmerged)
                     {
                         // Pass through stealth-hidden opponents AND empty air above flat submerged divers!
@@ -515,7 +554,7 @@ namespace UniversalBrain3D
                         Vector3 nrm = hit.normal;
                         float salCode = 0.50f;
 
-                        var tagComp = hit.collider.GetComponentInParent<UniversalSemanticEntityTag>();
+                        var tagComp = GetCachedColliderTag(hit.collider, includeParents: true);
                         if (tagComp != null)
                         {
                             float t = tagComp.GetObserverRelativeTag(teamId);

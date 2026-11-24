@@ -407,6 +407,8 @@ class WholeBrainNeuralEngineWrapper:
                 "cached_ally_oh32": np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32),
                 "cached_ally_rsi": (-1, -1, -1),
                 "cached_ally_tick": -999,
+                "last_kl_q_all": 0.0,
+                "last_kl_q_ally": 0.0,
             }
             st["rssm_stoch"][0] = 1.0
             self._agent_states[slot_id] = st
@@ -691,20 +693,18 @@ class WholeBrainNeuralEngineWrapper:
             t_age_ally = self._t(age_ally_np, torch.float32)
             t_memo_oh = self._t(memo_oh_np, torch.float32)
             t_val_memo = self._t(val_memo_np, torch.float32)
-            if use_protocortex and "protolang" in self.models:
+            has_ally_pkt = bool(float(val_ally_np.max()) > 0.5)
+            has_any_comm_pkt = has_ally_pkt or bool(float(val_memo_np.max()) > 0.5)
+            if use_protocortex and "protolang" in self.models and has_any_comm_pkt:
                 _, d_strat64, d_gwt128, _, _ = self.models["protolang"].receive_dual_packets(
                     t_ally_oh, t_val_ally, t_age_ally, t_memo_oh, t_val_memo, t_prop, t_comp
                 )
                 strat_emb = strat_emb_raw + d_strat64
-                if float(d_strat64.abs().max().item()) > 1e-7:
-                    mode_logits = self.models["strat_tf"].goal_mode_head(strat_emb)
-                    focus_off_xz = self.models["strat_tf"].focus_offset_head(strat_emb) * 5.0
-                else:
-                    mode_logits = mode_logits_raw
-                    focus_off_xz = focus_off_raw
+                mode_logits = self.models["strat_tf"].goal_mode_head(strat_emb)
+                focus_off_xz = self.models["strat_tf"].focus_offset_head(strat_emb) * 5.0
             else:
-                d_strat64 = torch.zeros_like(strat_emb_raw)
-                d_gwt128 = torch.zeros_like(t_prev_gwt)
+                d_strat64 = None
+                d_gwt128 = None
                 strat_emb = strat_emb_raw
                 mode_logits = mode_logits_raw
                 focus_off_xz = focus_off_raw
@@ -713,7 +713,7 @@ class WholeBrainNeuralEngineWrapper:
                 z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_emb,
                 t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
             )
-            gwt_base = gwt_base_raw + d_gwt128
+            gwt_base = (gwt_base_raw + d_gwt128) if d_gwt128 is not None else gwt_base_raw
             delta_gwt, next_spot_16 = self.models["topo_adapter"].compute_topdown_spotlight(
                 gwt_base, slot_aux["feat16"], slots, s_coords
             )
@@ -726,40 +726,39 @@ class WholeBrainNeuralEngineWrapper:
             )
 
             z_eff = torch.tanh(z_perc + 0.70 * z_td)
-            nov5_np = t_nov5.cpu().numpy()
             q_raw, spd_mod = self.models["d3qn"](z_eff, gwt_w, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
 
-            # Exact Counterfactual Positive-Listening KL (`Phi_comm` in bits): active reception vs muted reception
-            comm_kl_np = np.zeros(bsz, dtype=np.float32)
-            ally_kl_np = np.zeros(bsz, dtype=np.float32)
+            # Counterfactual Positive-Listening KL (`Phi_comm` in bits): live `kl_mode` every step + strided `kl_q`
+            t_kl_mode_all = None
+            t_kl_q_all = None
+            t_kl_mode_ally = None
+            t_kl_q_ally = None
+            cf_q_stride = max(1, int(getattr(self.cfg, "comm_kl_q_stride", 4)))
+            need_q_cf = any((int(s.get("step_counter", 1)) % cf_q_stride) == 1 for s in states)
             tau_pol = float(max(0.15, getattr(self.cfg, "policy_temp", 0.34)))
-            if (
-                use_protocortex
-                and "protolang" in self.models
-                and (float(d_strat64.abs().max().item()) > 1e-7 or float(d_gwt128.abs().max().item()) > 1e-7)
-            ):
+            if use_protocortex and "protolang" in self.models and has_any_comm_pkt:
                 F_nn = torch.nn.functional
                 pm_act = F_nn.softmax(mode_logits / 0.55, dim=-1)
                 pm_mut = F_nn.softmax(mode_logits_raw / 0.55, dim=-1)
-                kl_mode_all = (pm_act * (torch.log(pm_act + 1e-7) - torch.log(pm_mut + 1e-7))).sum(dim=-1) / math.log(2.0)
+                t_kl_mode_all = (pm_act * (torch.log(pm_act + 1e-7) - torch.log(pm_mut + 1e-7))).sum(dim=-1) / math.log(2.0)
 
-                pi_act = F_nn.softmax(q_raw / tau_pol, dim=-1)
-                gwt_b0, _, ign0, _ = self.models["gwt"](
-                    z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_emb_raw,
-                    t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
-                )
-                dg0, _ = self.models["topo_adapter"].compute_topdown_spotlight(
-                    gwt_b0, slot_aux["feat16"], slots, s_coords
-                )
-                gw0 = gwt_b0 + dg0
-                ztd0 = (0.08 + 0.24 * ign0).unsqueeze(-1) * self.models["gwt"].topdown_z(gw0)
-                zeff0 = torch.tanh(z_perc + 0.70 * ztd0)
-                q_mut, _ = self.models["d3qn"](zeff0, gw0, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
-                pi_mut = F_nn.softmax(q_mut / tau_pol, dim=-1)
-                kl_q_all = (pi_act * (torch.log(pi_act + 1e-7) - torch.log(pi_mut + 1e-7))).sum(dim=-1) / math.log(2.0)
-                comm_kl_np = np.maximum(0.0, (kl_mode_all + kl_q_all).cpu().numpy()).astype(np.float32)
+                pi_act = F_nn.softmax(q_raw / tau_pol, dim=-1) if need_q_cf else None
+                if need_q_cf:
+                    gwt_b0, _, ign0, _ = self.models["gwt"](
+                        z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_emb_raw,
+                        t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
+                    )
+                    dg0, _ = self.models["topo_adapter"].compute_topdown_spotlight(
+                        gwt_b0, slot_aux["feat16"], slots, s_coords
+                    )
+                    gw0 = gwt_b0 + dg0
+                    ztd0 = (0.08 + 0.24 * ign0).unsqueeze(-1) * self.models["gwt"].topdown_z(gw0)
+                    zeff0 = torch.tanh(z_perc + 0.70 * ztd0)
+                    q_mut, _ = self.models["d3qn"](zeff0, gw0, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
+                    pi_mut = F_nn.softmax(q_mut / tau_pol, dim=-1)
+                    t_kl_q_all = (pi_act * (torch.log(pi_act + 1e-7) - torch.log(pi_mut + 1e-7))).sum(dim=-1) / math.log(2.0)
 
-                if float(val_ally_np.max()) > 0.5:
+                if has_ally_pkt:
                     _, ds_no_ally, dg_no_ally, _, _ = self.models["protolang"].receive_dual_packets(
                         torch.zeros_like(t_ally_oh), torch.zeros_like(t_val_ally), t_age_ally,
                         t_memo_oh, t_val_memo, t_prop, t_comp
@@ -767,24 +766,25 @@ class WholeBrainNeuralEngineWrapper:
                     strat_no_ally = strat_emb_raw + ds_no_ally
                     ml_no_ally = self.models["strat_tf"].goal_mode_head(strat_no_ally)
                     pm_no_ally = F_nn.softmax(ml_no_ally / 0.55, dim=-1)
-                    kl_mode_ally = (pm_act * (torch.log(pm_act + 1e-7) - torch.log(pm_no_ally + 1e-7))).sum(dim=-1) / math.log(2.0)
+                    t_kl_mode_ally = (pm_act * (torch.log(pm_act + 1e-7) - torch.log(pm_no_ally + 1e-7))).sum(dim=-1) / math.log(2.0)
 
-                    gwt_ba, _, igna, _ = self.models["gwt"](
-                        z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_no_ally,
-                        t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
-                    )
-                    gwt_ba = gwt_ba + dg_no_ally
-                    dga, _ = self.models["topo_adapter"].compute_topdown_spotlight(
-                        gwt_ba, slot_aux["feat16"], slots, s_coords
-                    )
-                    gwa = gwt_ba + dga
-                    ztda = (0.08 + 0.24 * igna).unsqueeze(-1) * self.models["gwt"].topdown_z(gwa)
-                    zeffa = torch.tanh(z_perc + 0.70 * ztda)
-                    q_no_ally, _ = self.models["d3qn"](zeffa, gwa, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
-                    pi_no_ally = F_nn.softmax(q_no_ally / tau_pol, dim=-1)
-                    kl_q_ally = (pi_act * (torch.log(pi_act + 1e-7) - torch.log(pi_no_ally + 1e-7))).sum(dim=-1) / math.log(2.0)
-                    ally_kl_np = np.maximum(0.0, (kl_mode_ally + kl_q_ally).cpu().numpy()).astype(np.float32)
+                    if need_q_cf:
+                        gwt_ba, _, igna, _ = self.models["gwt"](
+                            z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_no_ally,
+                            t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
+                        )
+                        gwt_ba = gwt_ba + dg_no_ally
+                        dga, _ = self.models["topo_adapter"].compute_topdown_spotlight(
+                            gwt_ba, slot_aux["feat16"], slots, s_coords
+                        )
+                        gwa = gwt_ba + dga
+                        ztda = (0.08 + 0.24 * igna).unsqueeze(-1) * self.models["gwt"].topdown_z(gwa)
+                        zeffa = torch.tanh(z_perc + 0.70 * ztda)
+                        q_no_ally, _ = self.models["d3qn"](zeffa, gwa, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
+                        pi_no_ally = F_nn.softmax(q_no_ally / tau_pol, dim=-1)
+                        t_kl_q_ally = (pi_act * (torch.log(pi_act + 1e-7) - torch.log(pi_no_ally + 1e-7))).sum(dim=-1) / math.log(2.0)
 
+            nov5_np = t_nov5.cpu().numpy()
             slots_np = slots.cpu().numpy()
             pstats_np = slot_aux["pixel_stats"].cpu().numpy()
             next_spot_np = next_spot_16.cpu().numpy()
@@ -809,6 +809,83 @@ class WholeBrainNeuralEngineWrapper:
             sc_np = s_coords.cpu().numpy()
             sv_np = s_val.cpu().numpy()
             sctx_np = slot_ctx64.cpu().numpy()
+
+            comm_kl_np = np.zeros(bsz, dtype=np.float32)
+            ally_kl_np = np.zeros(bsz, dtype=np.float32)
+            if t_kl_mode_all is not None:
+                kl_m_all_np = t_kl_mode_all.cpu().numpy()
+                kl_q_all_np = t_kl_q_all.cpu().numpy() if t_kl_q_all is not None else None
+                kl_m_ally_np = t_kl_mode_ally.cpu().numpy() if t_kl_mode_ally is not None else None
+                kl_q_ally_np = t_kl_q_ally.cpu().numpy() if t_kl_q_ally is not None else None
+                for i, s in enumerate(states):
+                    if kl_q_all_np is not None:
+                        s["last_kl_q_all"] = float(max(0.0, kl_q_all_np[i]))
+                    q_all_v = float(s.get("last_kl_q_all", 0.0))
+                    comm_kl_np[i] = float(max(0.0, float(kl_m_all_np[i]) + q_all_v))
+                    if float(val_ally_np[i, 0]) > 0.5 and kl_m_ally_np is not None:
+                        if kl_q_ally_np is not None:
+                            s["last_kl_q_ally"] = float(max(0.0, kl_q_ally_np[i]))
+                        q_ally_v = float(s.get("last_kl_q_ally", 0.0))
+                        ally_kl_np[i] = float(max(0.0, float(kl_m_ally_np[i]) + q_ally_v))
+                    else:
+                        s["last_kl_q_ally"] = 0.0
+
+            # Precompute RVQ quantization + provisional candidate selection for vectorized Stage-2 GPU batch
+            sym_ids: List[int] = []
+            mod_ids: List[int] = []
+            proto_embs_list: List[np.ndarray] = []
+            q_fused_list: List[np.ndarray] = []
+            prov_cf32_list: List[np.ndarray] = []
+            allow_broca = bool(getattr(self.cfg, "allow_broca_motor_bias", False))
+            for i, req in enumerate(batch_reqs):
+                sym_id, mod_id, proto_emb, proto_bias = self.rvq.quantize(
+                    gwt_np[i], self_np[i], h_np[i], req["cand_verbs"], update_ema=bool(req.get("enable_learning", True))
+                )
+                sym_ids.append(sym_id)
+                mod_ids.append(mod_id)
+                proto_embs_list.append(proto_emb)
+                broca_bias = np.zeros(NUM_CANDIDATES, dtype=np.float32)
+                if allow_broca and ("lang_cand_bias" in req):
+                    broca_bias = np.asarray(req["lang_cand_bias"], dtype=np.float32).reshape(NUM_CANDIDATES) * float(self.cfg.broca_prior_gain)
+                qf_i = (
+                    0.78 * q_np[i]
+                    + 0.62 * rew_np[i]
+                    + 0.42 * (adv_np[i] - 0.5)
+                    + 0.20 * proto_bias
+                    + broca_bias
+                ).astype(np.float32)
+                q_fused_list.append(qf_i)
+                prov_cf32_list.append(c_feats[i, int(np.argmax(qf_i))].copy())
+
+            proto_embs_np = np.stack(proto_embs_list, axis=0).astype(np.float32)
+            prov_cf32_np = np.stack(prov_cf32_list, axis=0).astype(np.float32)
+            comm_gate_mag = 0.0
+            spk_oh_np = None
+            spk_ids_np = None
+            if use_protocortex and "protolang" in self.models:
+                pl_m = self.models["protolang"]
+                spk_oh_b, spk_ids_b, _ = pl_m.emit_packet(
+                    gwt_w,
+                    slot_ctx64,
+                    h_next,
+                    t_comp,
+                    t_prop,
+                    self._t(proto_embs_np, torch.float32),
+                )
+                gates_2 = torch.stack([pl_m.strat_comm_gate.reshape(-1)[0], pl_m.gwt_comm_gate.reshape(-1)[0]]).cpu().numpy()
+                comm_gate_mag = 0.5 * (abs(math.tanh(float(gates_2[0]))) + abs(math.tanh(float(gates_2[1]))))
+                spk_oh_np = spk_oh_b.cpu().numpy().astype(np.float32)
+                spk_ids_np = spk_ids_b.cpu().numpy()
+
+            pred_v8_b, pred_sl_b = self.models["slot_cortex"].predict_next_visual_field(
+                slots,
+                slot_aux["pixel_stats"],
+                s_coords,
+                self._t(prov_cf32_np, torch.float32),
+                rssm_h=h_next,
+            )
+            pred_v8_all_np = pred_v8_b.cpu().numpy().astype(np.float32)
+            pred_sl_all_np = pred_sl_b.cpu().numpy().astype(np.float32)
 
         results: List[Dict[str, Any]] = []
         for i, req in enumerate(batch_reqs):
@@ -849,30 +926,16 @@ class WholeBrainNeuralEngineWrapper:
                     },
                 ))
 
-            sym_id, mod_id, proto_emb, proto_bias = self.rvq.quantize(
-                gwt_np[i], self_np[i], h_np[i], req["cand_verbs"], update_ema=bool(req.get("enable_learning", True))
-            )
+            sym_id = sym_ids[i]
+            mod_id = mod_ids[i]
+            proto_emb = proto_embs_list[i]
+            q_fused = q_fused_list[i]
 
             live_rsi = (0, 0, 0)
             radio_tx_fired = False
-            comm_gate_mag = 0.0
-            if use_protocortex and "protolang" in self.models:
-                pl_m = self.models["protolang"]
-                comm_gate_mag = 0.5 * (
-                    abs(math.tanh(float(pl_m.strat_comm_gate.item())))
-                    + abs(math.tanh(float(pl_m.gwt_comm_gate.item())))
-                )
-                with torch.no_grad():
-                    spk_oh_i, spk_ids_i, _ = pl_m.emit_packet(
-                        self._t(gwt_np[i : i + 1], torch.float32),
-                        self._t(sctx_np[i : i + 1], torch.float32),
-                        self._t(h_np[i : i + 1], torch.float32),
-                        self._t(compasses[i : i + 1], torch.float32),
-                        self._t(proprios[i : i + 1], torch.float32),
-                        self._t(proto_emb[None, :], torch.float32),
-                    )
-                spk_oh_np_i = spk_oh_i[0].cpu().numpy().astype(np.float32)
-                ids_row = spk_ids_i[0].cpu().numpy()
+            if spk_oh_np is not None and spk_ids_np is not None:
+                spk_oh_np_i = spk_oh_np[i].copy()
+                ids_row = spk_ids_np[i]
                 live_rsi = (int(ids_row[0]), int(ids_row[1]), int(ids_row[2]))
                 st["self_memo_fifo"].append((spk_oh_np_i, live_rsi))
                 c_tick = cur_ticks[i]
@@ -886,30 +949,9 @@ class WholeBrainNeuralEngineWrapper:
                     st["last_emit_tick"] = c_tick
                     radio_tx_fired = True
 
-            # Plan A Strict Motor Isolation: Broca inner-speech bias is ZERO unless explicitly unlocked!
-            broca_bias = np.zeros(NUM_CANDIDATES, dtype=np.float32)
-            if bool(getattr(self.cfg, "allow_broca_motor_bias", False)) and ("lang_cand_bias" in req):
-                broca_bias = np.asarray(req["lang_cand_bias"], dtype=np.float32).reshape(NUM_CANDIDATES) * float(self.cfg.broca_prior_gain)
-
-            q_fused = (
-                0.78 * q_np[i]
-                + 0.62 * rew_np[i]
-                + 0.42 * (adv_np[i] - 0.5)
-                + 0.20 * proto_bias
-                + broca_bias
-            ).astype(np.float32)
-
             # Layer-1 Temporal Alignment: predict step `t+1` visual field & slots conditioned on step `t` action!
             prov_idx = int(np.argmax(q_fused))
-            prov_cf32 = c_feats[i, prov_idx].copy()
-            with torch.no_grad():
-                pred_v8_i, pred_sl_i = self.models["slot_cortex"].predict_next_visual_field(
-                    self._t(slots_np[i : i + 1], torch.float32),
-                    self._t(pstats_np[i : i + 1], torch.float32),
-                    self._t(sc_np[i : i + 1], torch.float32),
-                    self._t(prov_cf32[None, :], torch.float32),
-                    rssm_h=self._t(h_np[i : i + 1], torch.float32),
-                )
+            prov_cf32 = prov_cf32_np[i].copy()
             st["_last_vis_step"] = (
                 slots_np[i].copy(),
                 pstats_np[i].copy(),
@@ -917,9 +959,9 @@ class WholeBrainNeuralEngineWrapper:
                 h_np[i].copy(),
                 prov_cf32.copy(),
             )
-            pred_v8_np = pred_v8_i[0].cpu().numpy().astype(np.float32)
+            pred_v8_np = pred_v8_all_np[i]
             st["prev_pred_vis8"] = pred_v8_np
-            st["prev_slots"] = pred_sl_i[0].cpu().numpy().astype(np.float32)
+            st["prev_slots"] = pred_sl_all_np[i]
             st["prev_topdown_gain_16"] = next_spot_np[i].copy()
             st["prev_cand_feat32"] = prov_cf32
             st["rssm_h"] = h_np[i].copy()

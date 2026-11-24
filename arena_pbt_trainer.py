@@ -917,7 +917,9 @@ def run_population_gpu_server_process(
         "cand_poses": np.zeros((NUM_CANDIDATES, CONT_POSE_DIM), dtype=np.float32),
         "cand_verbs": np.zeros(NUM_CANDIDATES, dtype=np.int32),
     }
+    # Warm up CUDA/cuDNN kernels (bsz=1 & bsz=2) before signaling ready so live frames never stall TCP bridges
     engines[0].infer_conscious_gwt_batch([warmup_req])
+    engines[0].infer_conscious_gwt_batch([warmup_req, dict(warmup_req, slot_id=1)])
 
     ready_ev.set()
 
@@ -1037,6 +1039,8 @@ class LocalCpuBrainAgentDriver:
         trainable: bool = True,
         agent_state_id: Optional[int] = None,
         stop_ev=None,
+        cog_phase: int = 0,
+        enable_mip_telemetry: bool = True,
     ):
         self.cfg = cfg
         self.profile = get_task_profile(cfg.task_profile)
@@ -1047,6 +1051,8 @@ class LocalCpuBrainAgentDriver:
         self.resp_q = resp_q
         self.trainable = bool(trainable)
         self.stop_ev = stop_ev
+        self.cog_phase = int(cog_phase)
+        self.enable_mip_telemetry = bool(enable_mip_telemetry)
         self._rpc_seq = 0
 
         self.hippo = EntorhinalHippocampal3DEngineV2(cfg)
@@ -1157,9 +1163,19 @@ class LocalCpuBrainAgentDriver:
             self.mod_hist.clear()
         if obs.get("respawn_flag", False):
             self.respawn_seq += 1
-        vent_p = derive_ventral_fallback_from_dorsal_16(
-            obs["fovea_patch"], yaw_pitch=obs["self_yaw_pitch"], prev_state=self.ventral_prev, episode_id=int(obs["episode_id"])
-        )
+        tick = int(obs["physics_tick"])
+        ep_done = bool(obs["episode_done"])
+        eff_stride = max(1, int(cog_stride))
+        need_first_tr = self.ep_cog_steps_done == 0 or (self.trainable and self.pending_tr is None)
+        want_cog_pre = (((tick - self.cog_phase) % eff_stride) == 0) or ep_done or bool(obs.get("respawn_flag", False)) or need_first_tr
+        cached_vp = getattr(self, "_cached_vent_p", None)
+        if want_cog_pre or cached_vp is None or ((tick + self.agent_state_id) & 1) == 0:
+            vent_p = derive_ventral_fallback_from_dorsal_16(
+                obs["fovea_patch"], yaw_pitch=obs["self_yaw_pitch"], prev_state=self.ventral_prev, episode_id=ep_cur
+            )
+            self._cached_vent_p = vent_p
+        else:
+            vent_p = cached_vp
         sp_out = self.hippo.step(
             obs, dt, ventral_override=vent_p, respawn_atom=self.respawn_seq,
             topdown_goal_mode=self.last_goal_mode, topdown_focus_xyz=self.last_focus_xyz, lead_aim_xyz=self.last_lead_xyz,
@@ -1176,13 +1192,10 @@ class LocalCpuBrainAgentDriver:
         prop = project_pomdp_proprio(
             obs["proprio"], sp_out["believed_self_pos"], self.cfg.world_min, self.cfg.world_max, self.cfg
         )
-        tick = int(obs["physics_tick"])
-        ep_done = bool(obs["episode_done"])
         respawn_ev = bool(sp_out["respawn_event_flag"])
 
         rid_gwt: Optional[int] = None
-        need_first_tr = self.ep_cog_steps_done == 0 or (self.trainable and self.pending_tr is None)
-        want_cog = (tick % max(1, cog_stride) == 0) or ep_done or respawn_ev or need_first_tr
+        want_cog = want_cog_pre or respawn_ev
 
         cached_mc = getattr(self, "_cached_mc24", None)
         cached_cp = getattr(self, "_cached_c_poses", None)
@@ -1328,7 +1341,8 @@ class LocalCpuBrainAgentDriver:
             if "vis_slot_coords" in gwt_out and "vis_slot_valence" in gwt_out:
                 self.last_slot_coords = gwt_out["vis_slot_coords"].copy()
                 self.last_slot_valence = gwt_out["vis_slot_valence"].copy()
-            self.mod_hist.append(extract_5module_activity_vec(gwt_out, sp_out["mec_grid_code"], prop, mc24))
+            if self.enable_mip_telemetry:
+                self.mod_hist.append(extract_5module_activity_vec(gwt_out, sp_out["mec_grid_code"], prop, mc24))
             mip_info: Dict[str, Any] = {}
             q_star, pi, phi_bits, fr_step, ent_norm, veto_act = compute_gene_modulated_mip_and_fr(
                 gwt_out["q_values"], gwt_out["survival_probs"], gwt_out["pred_adv_probs"],
@@ -1336,12 +1350,13 @@ class LocalCpuBrainAgentDriver:
                 habituation_trace=self.homeostasis.habituation_trace,
                 stagnation_level=self.homeostasis.stagnation_level,
                 q_raw_values=gwt_out.get("q_raw_values"),
-                cortical_mod_history=self.mod_hist,
+                cortical_mod_history=self.mod_hist if self.enable_mip_telemetry else None,
                 self_surprise=self.last_self_surprise,
                 strategic_curiosity_mult=strat_cur_m,
                 strategic_objective_mult=strat_obj_m,
                 strategic_caution_delta=strat_caut_d,
                 mip_info_out=mip_info,
+                compute_causal_mip=self.enable_mip_telemetry,
             )
             self.prev_pi = pi.copy()
             self.latest_veto = bool(veto_act)
@@ -2960,6 +2975,8 @@ def run_2v2_spectate_worker_process(
                 trainable=False,
                 agent_state_id=p_i,
                 stop_ev=stop_ev,
+                cog_phase=(0 if team_signs[p_i] > 0 else 2),
+                enable_mip_telemetry=(p_i == 0),
             )
         )
 
@@ -3079,6 +3096,7 @@ def run_2v2_spectate_worker_process(
         will_sleep = bool(g_cmd.get("sleep_after_ep", False))
         for p_i in range(4):
             apply_checkpoint_genes_to_cfg(drivers[p_i].cfg, g_cmd.get("genes"))
+            drivers[p_i].cog_phase = 0 if team_signs[p_i] > 0 else 2
             if team_signs[p_i] > 0:
                 drivers[p_i].rebind_brain(0, "pure_neural", eff_train)
             else:
@@ -3161,10 +3179,18 @@ def run_2v2_spectate_worker_process(
                 if not trig_idxs:
                     continue
 
-                # Wait up to 15ms so all active Unity bridges in the same physics step batch together!
-                missing_idxs = [p_i for p_i in active_idxs if p_i not in trig_idxs]
-                if missing_idxs:
-                    r_extra, _, _ = select.select([conns[p_i] for p_i in missing_idxs], [], [], 0.015)
+                # Coalesce all active Unity bridges for the current lockstep FixedUpdate in one pass!
+                # (A single select() wakes as soon as ANY ONE remaining socket arrives, which previously
+                # split 4 sockets into [0, 1] + [2, 3] and caused a 15.6ms deadlock timeout waiting on [0, 1]!)
+                coalesce_deadline = time.perf_counter() + 0.008
+                while len(trig_idxs) < len(active_idxs):
+                    rem_wait = coalesce_deadline - time.perf_counter()
+                    if rem_wait <= 0.0:
+                        break
+                    missing_idxs = [p_i for p_i in active_idxs if p_i not in trig_idxs]
+                    r_extra, _, _ = select.select([conns[p_i] for p_i in missing_idxs], [], [], rem_wait)
+                    if not r_extra:
+                        break
                     for p_i in missing_idxs:
                         if conns[p_i] in r_extra:
                             trig_idxs.append(p_i)

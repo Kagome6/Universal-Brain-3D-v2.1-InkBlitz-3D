@@ -246,6 +246,7 @@ namespace InkBlitz3D
                     ag.brainBridge.arenaIndex = slotIndex;
                     ag.brainBridge.arenaOrigin = transform.position;
                     ag.brainBridge.stageId = settings != null ? settings.stageId : 1;
+                    ag.brainBridge.foveaCaptureStride = (is2v2PeerRadio && i > 0) ? 2 : 1;
                     if (!ag.isSupportTrooperBot)
                         ag.brainBridge.port = (ag.teamId > 0) ? portTeamA : portTeamB;
                     else

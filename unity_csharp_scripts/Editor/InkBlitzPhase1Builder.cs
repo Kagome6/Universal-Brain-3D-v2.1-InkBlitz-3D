@@ -676,6 +676,7 @@ namespace InkBlitz3D.Editor
             Debug.Log("[InkBlitzPhase1Builder] Scene sync + All SelfTests SUCCEEDED (Standalone build skipped per request).");
         }
 
+        [MenuItem("InkBlitzLab/Verify Scene, SelfTest & Build Win64 %#&b")]
         public static void VerifyAndBuildStandaloneBatch()
         {
             Build1v1BlitzCoreScene();
