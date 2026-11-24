@@ -225,9 +225,22 @@ class OpponentLeaguePool:
             weights_state=weights_state,
         )
         if len(self.snapshots) >= self.max_snapshots:
-            # Keep the highest-Elo champion AND diverse generations; evict lowest-Elo older snapshot
-            worst_idx = int(np.argmin([s.elo for s in self.snapshots[:-1]]))
-            self.snapshots.pop(worst_idx)
+            # Quality-Diversity eviction: protect the all-time highest-Elo snapshot AND unique niche archetypes
+            # by evicting the lowest-Elo duplicate-archetype snapshot first!
+            best_idx = int(np.argmax([s.elo for s in self.snapshots]))
+            arch_counts: Dict[str, int] = {}
+            for s in self.snapshots:
+                arch_counts[s.archetype] = arch_counts.get(s.archetype, 0) + 1
+            cands_dup = [
+                idx for idx in range(len(self.snapshots) - 1)
+                if idx != best_idx and arch_counts.get(self.snapshots[idx].archetype, 0) >= 2
+            ]
+            if cands_dup:
+                worst_idx = min(cands_dup, key=lambda idx: self.snapshots[idx].elo)
+            else:
+                cands_any = [idx for idx in range(len(self.snapshots) - 1) if idx != best_idx]
+                worst_idx = min(cands_any, key=lambda idx: self.snapshots[idx].elo) if cands_any else 0
+            self.snapshots.pop(int(worst_idx))
         self.snapshots.append(entry)
 
     def sample_pfsp_opponent(self, learner_elo: float) -> Optional[LeagueSnapshotEntry]:
@@ -243,6 +256,98 @@ class OpponentLeaguePool:
         w_arr /= np.sum(w_arr)
         idx = int(self.rng.choice(len(self.snapshots), p=w_arr))
         return self.snapshots[idx]
+
+
+def _blend_brain_state_dicts_np(
+    champ_state: Dict[str, Any],
+    loser_state: Optional[Dict[str, Any]],
+    loser_alpha: float = 0.20,
+) -> Dict[str, Any]:
+    """
+    Pure-NumPy (`Barrier 1` safe) Linear Mode Connectivity / Model-Soup Soft Merge:
+    Retains `loser_alpha` (e.g. 12%..22%) of the loser slot's finite floating-point representations
+    instead of 100% hard-wiping local sub-skills acquired on alternate stages or niches.
+    """
+    alpha = float(np.clip(loser_alpha, 0.0, 0.45))
+    if loser_state is None or alpha <= 1e-5 or not isinstance(champ_state, dict) or not isinstance(loser_state, dict):
+        return champ_state
+
+    c_models = champ_state.get("models", {})
+    l_models = loser_state.get("models", {})
+    merged_models: Dict[str, Dict[str, Any]] = {}
+    for m_name, c_sd in c_models.items():
+        l_sd = l_models.get(m_name, {}) if isinstance(l_models, dict) else {}
+        m_out: Dict[str, Any] = {}
+        for p_name, c_val in c_sd.items():
+            c_arr = np.asarray(c_val)
+            if (
+                isinstance(l_sd, dict)
+                and p_name in l_sd
+                and np.issubdtype(c_arr.dtype, np.floating)
+            ):
+                l_arr = np.asarray(l_sd[p_name])
+                if l_arr.shape == c_arr.shape and bool(np.all(np.isfinite(l_arr))) and bool(np.all(np.isfinite(c_arr))):
+                    m_out[p_name] = ((1.0 - alpha) * c_arr + alpha * l_arr).astype(c_arr.dtype, copy=False)
+                    continue
+            m_out[p_name] = c_arr.copy()
+        merged_models[m_name] = m_out
+
+    merged_rvq: Dict[str, Any] = {}
+    c_rvq = champ_state.get("rvq", {})
+    l_rvq = loser_state.get("rvq", {})
+    if isinstance(c_rvq, dict):
+        for rk, rv in c_rvq.items():
+            r_arr = np.asarray(rv).copy()
+            # Keep discrete RVQ centroid codebooks aligned with Champion; softly blend zero-mean verb priors
+            if (
+                rk == "sym_verb_prior"
+                and isinstance(l_rvq, dict)
+                and rk in l_rvq
+                and np.asarray(l_rvq[rk]).shape == r_arr.shape
+                and bool(np.all(np.isfinite(l_rvq[rk])))
+            ):
+                blended_p = (1.0 - alpha) * r_arr + alpha * np.asarray(l_rvq[rk], dtype=r_arr.dtype)
+                blended_p = blended_p - np.mean(blended_p, axis=-1, keepdims=True)
+                r_arr = np.clip(blended_p, -0.45, 0.45).astype(r_arr.dtype, copy=False)
+            merged_rvq[rk] = r_arr
+
+    out_state = dict(champ_state)
+    out_state["models"] = merged_models
+    if merged_rvq:
+        out_state["rvq"] = merged_rvq
+    return out_state
+
+
+def _crossover_and_mutate_slot_genes(
+    slot_id: int,
+    champ_genes: Dict[str, Any],
+    loser_genes: Dict[str, Any],
+    rng: np.random.Generator,
+    scaffold_prior_scale: float,
+) -> Dict[str, Any]:
+    """
+    QD Niche-Preserving Gene Crossover & Exploration:
+      - Keeps each slot anchored to its home tactical archetype role (`ObjectiveStriker`, `TurfController`,
+        `StealthInterceptor`, `BalancedTactician`) so the population never collapses into 4 identical clones.
+      - Blends 65% Champion + 20% Loser + 15% Home-Archetype anchor before applying bounded exploration noise.
+    """
+    home_arch = PBT_ARCHETYPES[int(slot_id) % len(PBT_ARCHETYPES)]
+    out_genes = dict(champ_genes)
+    out_genes["archetype"] = str(home_arch["archetype"])
+    out_genes["scaffold_prior_scale"] = float(scaffold_prior_scale)
+    for gk, lo, hi in (
+        ("lr_scale", 0.35, 2.20),
+        ("curiosity_fog_gain", 0.40, 2.40),
+        ("stn_stealth_gain", 0.45, 2.30),
+        ("policy_temp", 0.18, 0.70),
+        ("survival_veto_threshold", 0.28, 0.58),
+    ):
+        v_c = float(champ_genes.get(gk, home_arch[gk]))
+        v_l = float(loser_genes.get(gk, home_arch[gk]))
+        v_h = float(home_arch[gk])
+        blended = 0.65 * v_c + 0.20 * v_l + 0.15 * v_h
+        out_genes[gk] = float(np.clip(blended * float(rng.uniform(0.88, 1.14)), lo, hi))
+    return out_genes
 
 
 # ==============================================================================
@@ -2016,6 +2121,8 @@ def run_arena_slot_worker_process(
             opp_id_label = str(g_cmd.get("opp_label", f"slot_{opp_brain_id}"))
             is_spectate = bool(g_cmd.get("spectate_endless", False))
             will_sleep_after = bool(g_cmd.get("sleep_after_ep", False))
+            multi_stage_eval = bool(g_cmd.get("multi_stage_eval", False))
+            base_stage_id = max(1, int(g_cmd.get("base_stage_id", cfg.default_stage_id)))
             apply_checkpoint_genes_to_cfg(learner_driver.cfg, g_cmd.get("genes"))
             eff_l_train = bool(g_cmd.get("trainable", False)) if is_spectate else bool(g_cmd.get("trainable", True))
             eff_l_pol = "pure_neural" if is_spectate else str(g_cmd.get("policy_mode", cfg.policy_mode))
@@ -2025,15 +2132,21 @@ def run_arena_slot_worker_process(
             opp_driver.rebind_brain(opp_brain_id, eff_opp_pol, False)
 
             ep_scores: List[float] = []
+            stages_played: List[int] = []
             wins = 0
             losses = 0
             draws = 0
 
             if env_backend == "builtin_3d":
-                for _ in range(episodes_target):
+                for ep_i in range(episodes_target):
                     if stop_ev.is_set():
                         break
                     if matchmaking == "self_play" and h2h_arena is not None:
+                        if multi_stage_eval and not is_spectate:
+                            # Stratified Stage 1 (Open) <-> Stage 2 (Central Baffle Wall) evaluation
+                            ep_stage = ((base_stage_id - 1 + max(0, gen_idx - 1) + ep_i) % 2) + 1
+                            h2h_arena.cfg.default_stage_id = ep_stage
+                        stages_played.append(int(getattr(h2h_arena.cfg, "default_stage_id", base_stage_id)))
                         h2h_arena.reset_episode()
                         act_a = (np.zeros(CONT_POSE_DIM, dtype=np.float32), VERB_APPROACH_HOVER, False, np.array([0.0, -0.15, 6.0], dtype=np.float32))
                         act_b = (np.zeros(CONT_POSE_DIM, dtype=np.float32), VERB_APPROACH_HOVER, False, np.array([0.0, -0.15, 6.0], dtype=np.float32))
@@ -2465,6 +2578,7 @@ def run_arena_slot_worker_process(
                 "losses": int(losses),
                 "draws": int(draws),
                 "episodes": len(ep_scores),
+                "stages_played": stages_played,
                 "transitions_sent": int(learner_driver.transitions_sent),
             })
     finally:
@@ -2505,6 +2619,7 @@ def run_arena_pbt_coordinator(
     enable_sleep: bool = True,
     sleep_epochs: int = 6,
     scaffold_anneal_end: Optional[float] = None,
+    multi_stage_eval: bool = True,
     watch_stdin: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -2651,6 +2766,8 @@ def run_arena_pbt_coordinator(
                     "policy_mode": gen_policy,
                     "opp_policy_mode": opp_pol,
                     "sleep_after_ep": bool(enable_sleep and int(sleep_epochs) > 0),
+                    "multi_stage_eval": bool(multi_stage_eval),
+                    "base_stage_id": int(getattr(base_cfg, "default_stage_id", 1)),
                 })
 
             _emit_pbt_stat({
@@ -2704,19 +2821,29 @@ def run_arena_pbt_coordinator(
             if stop_ev.is_set():
                 break
 
-            # Update Elo ratings & compute composite fitness
+            # Update Elo ratings & compute Anti-Reward-Hacking Win/Elo-Dominant Composite Fitness:
+            #   - Caps unbounded turf/splat score farming via `4.0 * tanh(mean_score / 8.0)`
+            #   - Decays dense score shaping weight (`1.0 -> 0.35`) across generations so real match Win/Elo rules!
             fitness = np.zeros(pop_n, dtype=np.float32)
+            win_scores_gen = np.full(pop_n, 0.5, dtype=np.float32)
+            gen_prog = float(g - 1) / float(max(1, int(generations) - 1)) if int(generations) > 1 else 0.0
+            w_shape = 1.0 - 0.65 * gen_prog
             for i in range(pop_n):
                 r = gen_results.get(i, {"mean_score": 0.0, "wins": 0, "losses": 0, "draws": 1})
                 total_g = max(1, int(r["wins"]) + int(r["losses"]) + int(r["draws"]))
                 win_score = (float(r["wins"]) + 0.5 * float(r["draws"])) / float(total_g)
+                win_scores_gen[i] = float(win_score)
+                raw_sc = float(r["mean_score"]) if math.isfinite(float(r["mean_score"])) else 0.0
+                bounded_sc = 4.0 * math.tanh(raw_sc / 8.0)
                 kind, opp_elo, hof_e, peer_idx = opp_meta_for_slot[i]
                 if matchmaking == "self_play":
                     new_a, new_b = compute_elo_update(slot_elos[i], opp_elo, win_score, k_factor=24.0)
                     slot_elos[i] = new_a
                     if kind == "hof" and hof_e is not None:
                         hof_e.elo = new_b
-                fitness[i] = float(r["mean_score"]) + 0.04 * (slot_elos[i] - 1200.0)
+                    fitness[i] = 10.0 * (win_score - 0.5) + 0.08 * (slot_elos[i] - 1200.0) + w_shape * bounded_sc
+                else:
+                    fitness[i] = 6.0 * (win_score - 0.5) + bounded_sc + 0.15 * raw_sc
 
             # Offline Sleep S-1..S-4 across all learners (serialized BEFORE Ollama 12B via sleep gate!)
             eff_sleep_ep = max(0, int(sleep_epochs)) if enable_sleep else 0
@@ -2772,21 +2899,28 @@ def run_arena_pbt_coordinator(
                     best_path = os.path.join(checkpoint_dir, "pbt_best_champion.pt")
                     _gpu_ctrl("save_slot", {"slot_id": champ_slot, "path": best_path, "meta": champ_meta})
 
-            # PBT Exploit & Explore: bottom slot copies top champion weights + perturbs genes
+            # QD-PBT Soft Exploit & Explore:
+            #   - Instead of 100% hard-wiping the bottom slot, retains 12%..22% of the loser's weights via
+            #     Linear Mode Connectivity (Model Soup) so stage-specific sub-skills survive!
+            #   - Crosses genes while keeping each slot anchored to its home tactical archetype niche!
             if g < int(generations) and pop_n >= 2 and (not stop_ev.is_set()) and (not abort_save_ev.is_set()):
                 loser_slot = int(ranked[-1])
-                mut_genes = dict(slot_genes[champ_slot])
-                for gk, lo, hi in (
-                    ("lr_scale", 0.35, 2.20),
-                    ("curiosity_fog_gain", 0.40, 2.40),
-                    ("stn_stealth_gain", 0.45, 2.30),
-                    ("policy_temp", 0.18, 0.70),
-                    ("survival_veto_threshold", 0.28, 0.58),
-                ):
-                    mut_genes[gk] = float(np.clip(float(mut_genes[gk]) * float(rng.uniform(0.85, 1.18)), lo, hi))
-                slot_genes[loser_slot] = mut_genes
-                slot_elos[loser_slot] = 0.5 * (slot_elos[loser_slot] + slot_elos[champ_slot])
-                _gpu_ctrl("set_slot_state", {"slot_id": loser_slot, "state": champ_st["state"], "genes": mut_genes})
+                if loser_slot != champ_slot:
+                    loser_st = _gpu_ctrl("get_slot_state", {"slot_id": loser_slot})
+                    r_loser = gen_results.get(loser_slot, {"mean_score": 0.0})
+                    l_competitive = (float(win_scores_gen[loser_slot]) >= 0.25) or (float(r_loser.get("mean_score", 0.0)) > -2.0)
+                    loser_alpha = 0.22 if l_competitive else 0.12
+                    merged_state = _blend_brain_state_dicts_np(champ_st["state"], loser_st.get("state"), loser_alpha=loser_alpha)
+                    mut_genes = _crossover_and_mutate_slot_genes(
+                        slot_id=loser_slot,
+                        champ_genes=slot_genes[champ_slot],
+                        loser_genes=slot_genes[loser_slot],
+                        rng=rng,
+                        scaffold_prior_scale=gen_scaf_scale,
+                    )
+                    slot_genes[loser_slot] = mut_genes
+                    slot_elos[loser_slot] = (1.0 - loser_alpha) * slot_elos[champ_slot] + loser_alpha * slot_elos[loser_slot]
+                    _gpu_ctrl("set_slot_state", {"slot_id": loser_slot, "state": merged_state, "genes": mut_genes})
 
             gen_rec = {
                 "generation": g,
@@ -3607,6 +3741,13 @@ def main() -> int:
     ap.add_argument("--policy-mode", type=str, default="dagger", choices=["scaffold", "anneal", "dagger", "pure_neural"])
     ap.add_argument("--hippo-memory-mode", type=str, default=HIPPO_MEM_ADAPTIVE, choices=list(HIPPO_MEM_MODES))
     ap.add_argument("--stage-id", type=int, default=1)
+    ap.add_argument(
+        "--stage-rotation",
+        type=str,
+        default="auto",
+        choices=["auto", "fixed"],
+        help="Stratified Stage 1 <-> Stage 2 evaluation during builtin_3d PBT ('auto' rotates stages; 'fixed' keeps --stage-id)",
+    )
     ap.add_argument("--time-scale", type=float, default=4.0)
     ap.add_argument("--host", type=str, default="127.0.0.1")
     ap.add_argument("--base-port", type=int, default=50055)
@@ -3713,6 +3854,7 @@ def main() -> int:
         enable_sleep=bool(int(args.sleep_consolidation) != 0),
         sleep_epochs=int(args.sleep_epochs),
         scaffold_anneal_end=(float(np.clip(args.scaffold_anneal_end, 0.0, 1.0)) if float(args.scaffold_anneal_end) >= 0.0 else None),
+        multi_stage_eval=(str(args.stage_rotation).strip().lower() != "fixed"),
         watch_stdin=args.watch_stdin,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
