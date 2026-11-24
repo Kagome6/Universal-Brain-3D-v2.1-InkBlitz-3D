@@ -87,6 +87,7 @@ namespace InkBlitz3D.Editor
             var audioSys = arenaGo.AddComponent<ArenaAudioSystem>();
             var projMgr = arenaGo.AddComponent<InkProjectileManager>();
             projMgr.templateOpaqueMaterial = pedAMat;
+            var wallFluidSys = arenaGo.AddComponent<ObstacleWallFluidSystem>();
 
             var stageBuilder = arenaGo.AddComponent<ArenaStageBuilder>();
             stageBuilder.defaultFloorMaterial = floorPreviewMat;
@@ -109,6 +110,7 @@ namespace InkBlitz3D.Editor
             arenaInstance.stageBuilder = stageBuilder;
             arenaInstance.audioSystem = audioSys;
             arenaInstance.projectileManager = projMgr;
+            arenaInstance.wallFluidSystem = wallFluidSys;
             arenaInstance.blitzCore = arenaGo.GetComponentInChildren<BlitzCoreObjective>(true);
             arenaGo.GetComponentsInChildren(true, arenaInstance.deflectPickups);
             arenaInstance.logPeriodicTelemetry = true;
@@ -682,7 +684,8 @@ namespace InkBlitz3D.Editor
             Build1v1BlitzCoreScene();
             if (!InkBlitzMechanicsSelfTest.RunMechanicsVerification())
             {
-                EditorApplication.Exit(1);
+                if (Application.isBatchMode)
+                    EditorApplication.Exit(1);
                 return;
             }
             BuildStandaloneWindows64();

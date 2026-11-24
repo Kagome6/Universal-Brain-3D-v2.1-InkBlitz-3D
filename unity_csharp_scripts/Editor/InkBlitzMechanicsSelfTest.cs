@@ -1313,9 +1313,56 @@ namespace InkBlitz3D.Editor
                 arena.RebuildArenaForStage(1);
                 Physics.SyncTransforms();
                 Assert(arena.settings.stageId == 1 && agA.brainBridge.stageId == 1, "Expected clean round-trip back to Stage 1.");
-                Debug.Log($"[PASS] SelfTest 24/24: Stage 2 Occluded Twin-Flank verified (minNormY={minNormS2:F3}, maxSymErr={maxSymErrS2:E2}, BaffleHit='{baffleHitName}').");
+                Debug.Log($"[PASS] SelfTest 24/25: Stage 2 Occluded Twin-Flank verified (minNormY={minNormS2:F3}, maxSymErr={maxSymErrS2:E2}, BaffleHit='{baffleHitName}').");
 
-                Debug.Log("[InkBlitzMechanicsSelfTest] ALL 24 PHASE 2-5 MECHANICS CHECKS PASSED!");
+                // Check 25: Interior-Only Obstacle Wall Bingham Viscous Fluid, Outer Wall Exclusion & Training-Mode Bypass
+                Assert(arena.wallFluidSystem != null && arena.wallFluidSystem.RegisteredObstacleCount >= 8,
+                    $"Expected ObstacleWallFluidSystem to register >= 8 interior boxes, got {arena.wallFluidSystem?.RegisteredObstacleCount}");
+                string[] outerFrameNames = { "WallsAndCovers/Wall_North", "WallsAndCovers/Wall_South", "WallsAndCovers/Wall_East", "WallsAndCovers/Wall_West" };
+                for (int wi = 0; wi < outerFrameNames.Length; wi++)
+                {
+                    Transform wt = root.transform.Find(outerFrameNames[wi]);
+                    Collider wc = wt != null ? wt.GetComponent<Collider>() : null;
+                    Assert(wc != null && !arena.wallFluidSystem.IsRegisteredObstacle(wc),
+                        $"Expected outer stage boundary '{outerFrameNames[wi]}' strictly excluded from wall wetting!");
+                }
+                Transform covCheck = root.transform.Find("WallsAndCovers/Cover_CenterSE");
+                Collider covCol = covCheck != null ? covCheck.GetComponent<Collider>() : null;
+                Assert(covCol != null && arena.wallFluidSystem.IsRegisteredObstacle(covCol),
+                    "Expected interior obstacle 'Cover_CenterSE' registered for Bingham wall fluid!");
+
+                testCoord.sessionMode = BrainSessionRunMode.SingleArenaSelfPlaySpectate;
+                arena.wallFluidSystem.ResetAllFluid();
+                Assert(arena.wallFluidSystem.ShouldSimulateVisualFluid() && arena.wallFluidSystem.ActiveWetObstacleCount == 0,
+                    "Expected visual wall fluid active & clean at Spectate start.");
+
+                Vector3 hitFaceWorld = covCheck.TransformPoint(new Vector3(0f, 0.18f, -0.5f));
+                Vector3 hitOutNormal = covCheck.TransformDirection(Vector3.back);
+                bool hitAccepted = arena.wallFluidSystem.OnEnvironmentImpact(
+                    covCol, hitFaceWorld, hitOutNormal, -hitOutNormal * 18f, teamId: 1, splashRadiusM: 1.1f, isBlast: false);
+                Assert(hitAccepted && arena.wallFluidSystem.ActiveWetObstacleCount == 1,
+                    "Expected direct shot on interior obstacle wall to wet obstacle surface.");
+                for (int fStep = 0; fStep < 24; fStep++)
+                    arena.wallFluidSystem.StepVisualFluid(1f / 60f);
+
+                Transform northWallTr = root.transform.Find("WallsAndCovers/Wall_North");
+                Collider northCol = northWallTr.GetComponent<Collider>();
+                bool outerAccepted = arena.wallFluidSystem.OnEnvironmentImpact(
+                    northCol, northWallTr.position, Vector3.back, Vector3.forward * 18f, teamId: 1, splashRadiusM: 1.2f, isBlast: true);
+                Assert(!outerAccepted && arena.wallFluidSystem.ActiveWetObstacleCount == 1,
+                    "Expected outer perimeter wall impact rejected with zero wetting!");
+
+                testCoord.sessionMode = BrainSessionRunMode.ParallelCompetitiveSelfPlay; // Training session!
+                arena.ConfigureForSlot(99, 59155, 59156, testCoord);
+                Assert(!arena.wallFluidSystem.ShouldSimulateVisualFluid(),
+                    "Expected visual wall fluid auto-bypassed during fast Training session!");
+                testCoord.sessionMode = BrainSessionRunMode.SinglePlaySpectate;
+                arena.ConfigureForSlot(99, 59155, 59156, null);
+                arena.wallFluidSystem.ResetAllFluid();
+                Assert(arena.wallFluidSystem.ActiveWetObstacleCount == 0, "Expected ResetAllFluid to clean all wet obstacles.");
+                Debug.Log($"[PASS] SelfTest 25/25: Interior-only Bingham wall fluid ({arena.wallFluidSystem.RegisteredObstacleCount} boxes), outer wall exclusion, and training bypass verified.");
+
+                Debug.Log("[InkBlitzMechanicsSelfTest] ALL 25 PHASE 2-5 MECHANICS CHECKS PASSED!");
                 return true;
             }
             catch (Exception ex)
