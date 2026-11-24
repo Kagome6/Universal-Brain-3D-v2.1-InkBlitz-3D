@@ -4,7 +4,7 @@
 //   2. Simultaneous N-Arena Parallel PBT & Self-Play (`arena_pbt_trainer.py --mode train --env unity_tcp`)
 //      spawning spatially separated Arena prefabs (`arenaIndex * 80m` along X) inside ONE Unity instance!
 //   3. Zero-Orphan Subprocess Management (`--parent-pid` + graceful kill on OnApplicationQuit/OnDestroy).
-// License: GPL-3.0
+// License: MIT (Unity C# Bridge & InkBlitz 3D Arena; Python Brain Core over TCP is GPL-3.0)
 
 using System;
 using System.Collections.Concurrent;
@@ -51,8 +51,10 @@ namespace UniversalBrain3D
         public string pbtCheckpointDir = @"checkpoints\user_runs";
         public bool enableSleepConsolidation = true;
         [Range(0, 16)] public int sleepConsolidationEpochs = 6;
+        [Range(1, 2)] public int activeStageId = 1; // 1 = Classic Citadel, 2 = Occluded Twin-Flank
         public string hippoMemoryMode = "adaptive"; // "adaptive" | "carry_same_stage" | "reset_always"
         public bool spectateContinualLearning = false;
+        public bool spectate2v2BrainRadio = false;
         public bool enableStrategyBroadcast = true;
         public string ollamaComputeMode = "hybrid"; // "hybrid" (GPU+CPU split) | "cpu" (num_gpu=0) | "gpu"
         [Range(1, 10)] public int maxTrainingStepsPerRenderFrame = 2;
@@ -237,6 +239,7 @@ namespace UniversalBrain3D
             latestBackendError = "";
 
             int unityPid = Process.GetCurrentProcess().Id;
+            int stageArgVal = Mathf.Clamp(activeStageId, 1, 2);
             string hippoArg = string.IsNullOrWhiteSpace(hippoMemoryMode) ? "adaptive" : hippoMemoryMode.Trim();
             string scriptPath;
             string args;
@@ -256,7 +259,7 @@ namespace UniversalBrain3D
                 string learnArg = spectateContinualLearning
                     ? $" --enable-learning --autosave-per-episode --sleep-epochs 2 --save-weights \"{contSaveFull}\""
                     : " --disable-learning";
-                args = $"-B \"{scriptPath}\" --mode play --env unity_tcp --task-profile {taskProfile} "
+                args = $"-B \"{scriptPath}\" --mode play --env unity_tcp --task-profile {taskProfile} --stage-id {stageArgVal} "
                      + $"--policy-mode {modeArg} --hippo-memory-mode {hippoArg}{learnArg}{stratArg} --port {baseTcpPort} --ux-port {baseTcpPort + 100} --parent-pid {unityPid} --watch-stdin{loadArg}";
                 Time.timeScale = 1.0f;
                 Time.maximumDeltaTime = Mathf.Max(Time.fixedDeltaTime, Time.fixedDeltaTime * 2f);
@@ -271,8 +274,9 @@ namespace UniversalBrain3D
                 string contArg = spectateContinualLearning
                     ? $" --continual-learn --sleep-consolidation 1 --sleep-epochs 2 --save-continual-weights \"{contSaveFull}\""
                     : "";
-                args = $"-B \"{scriptPath}\" --mode spectate --env unity_tcp --task-profile {taskProfile} "
-                     + $"--hippo-memory-mode {hippoArg}{contArg}{stratArg} --base-port {baseTcpPort} --ux-port {baseTcpPort + 100} --time-scale 1.0 --parent-pid {unityPid} --watch-stdin{loadArg}{oppArg}";
+                string radio2v2Arg = spectate2v2BrainRadio ? " --spectate-2v2" : "";
+                args = $"-B \"{scriptPath}\" --mode spectate --env unity_tcp --task-profile {taskProfile} --stage-id {stageArgVal} "
+                     + $"--hippo-memory-mode {hippoArg}{contArg}{radio2v2Arg}{stratArg} --base-port {baseTcpPort} --ux-port {baseTcpPort + 100} --time-scale 1.0 --parent-pid {unityPid} --watch-stdin{loadArg}{oppArg}";
                 Time.timeScale = 1.0f;
                 Time.maximumDeltaTime = Mathf.Max(Time.fixedDeltaTime, Time.fixedDeltaTime * 2f);
             }
@@ -289,7 +293,7 @@ namespace UniversalBrain3D
                 int slpFlag = (enableSleepConsolidation && sleepConsolidationEpochs > 0) ? 1 : 0;
                 int slpEp = Mathf.Max(0, sleepConsolidationEpochs);
                 args = $"-B \"{scriptPath}\" --mode train --env unity_tcp --matchmaking {mm} "
-                     + $"--task-profile {taskProfile} --pop-size {parallelArenaCount} "
+                     + $"--task-profile {taskProfile} --stage-id {stageArgVal} --pop-size {parallelArenaCount} "
                      + $"--generations {Mathf.Max(1, pbtGenerations)} --episodes-per-gen {Mathf.Max(1, pbtEpisodesPerGen)} "
                      + $"--policy-mode {pbtPol} --hippo-memory-mode {hippoArg} --sleep-consolidation {slpFlag} --sleep-epochs {slpEp}{stratArg} "
                      + $"--checkpoint-dir \"{ckptDirArg}\"{initArg} "
