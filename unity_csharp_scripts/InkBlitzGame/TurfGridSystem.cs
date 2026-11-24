@@ -410,6 +410,21 @@ namespace InkBlitz3D
             return result;
         }
 
+        /// <summary>
+        /// Visual-only splat for wall-drip runoff & hill-slope viscous rivulets.
+        /// Strictly leaves logical `_ownerGrid`, `TeamACells`, AI sensors, and explore rewards untouched!
+        /// </summary>
+        public void PaintVisualDripOnly(Vector3 worldPoint, float radiusM, int teamId)
+        {
+            if (!enableTextureUpload || _settings == null || _pixels == null || teamId == 0 || radiusM <= 0f)
+                return;
+
+            sbyte tVal = (teamId > 0) ? (sbyte)1 : (sbyte)-1;
+            Color inkColor = (tVal > 0) ? _settings.teamAColor : _settings.teamBColor;
+            Vector3 local = worldPoint - _arenaOrigin;
+            StampOrganicHighResSplat(local.x, local.z, radiusM, inkColor, tVal);
+        }
+
         private void StampOrganicHighResSplat(float localX, float localZ, float radiusM, Color inkColor, sbyte tVal)
         {
             if (_pixels == null || _texW <= 0 || _texH <= 0) return;

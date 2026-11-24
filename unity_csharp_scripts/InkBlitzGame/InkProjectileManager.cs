@@ -162,7 +162,7 @@ namespace InkBlitz3D
             if (muzzleHitEnv)
             {
                 float splashRadius = isBlitzCoreBlast ? cfg.blitzCoreBlastRadiusM : cfg.shotSplashRadiusM;
-                PaintAtImpactOrDownward(muzzleHit.point, muzzleHit.normal, team, shooter, splashRadius);
+                PaintAtImpactOrDownward(muzzleHit.collider, muzzleHit.point, muzzleHit.normal, dir * speed, team, shooter, splashRadius, isBlitzCoreBlast);
                 if (isBlitzCoreBlast)
                     ApplyBlastAoE(muzzleHit.point, team, shooter, null, cfg);
                 _arena.audioSystem?.EmitSound(muzzleHit.point, team, isBlitzCoreBlast ? 0.85f : 0.55f, 0.25f);
@@ -304,7 +304,7 @@ namespace InkBlitz3D
                 if (hitEnv)
                 {
                     float splashRadius = slot.isBlitzCoreBlast ? cfg.blitzCoreBlastRadiusM : cfg.shotSplashRadiusM;
-                    PaintAtImpactOrDownward(envHit.point, envHit.normal, slot.teamId, slot.shooter, splashRadius);
+                    PaintAtImpactOrDownward(envHit.collider, envHit.point, envHit.normal, slot.vel, slot.teamId, slot.shooter, splashRadius, slot.isBlitzCoreBlast);
                     if (slot.isBlitzCoreBlast)
                         ApplyBlastAoE(envHit.point + envHit.normal * 0.15f, slot.teamId, slot.shooter, null, cfg, slot.damageScale);
                     _arena.audioSystem?.EmitSound(envHit.point, slot.teamId, 0.45f, 0.22f);
@@ -378,7 +378,7 @@ namespace InkBlitz3D
                 if (SweepEnvironmentIgnoringAgents(eyeOrigin, aimDir, racketLaunchOffset + 0.04f, sphereRad, out RaycastHit wallHit))
                 {
                     float splashR = slot.isBlitzCoreBlast ? cfg.blitzCoreBlastRadiusM : cfg.shotSplashRadiusM;
-                    PaintAtImpactOrDownward(wallHit.point, wallHit.normal, newTeam, defender, splashR);
+                    PaintAtImpactOrDownward(wallHit.collider, wallHit.point, wallHit.normal, aimDir * newSpeed, newTeam, defender, splashR, slot.isBlitzCoreBlast);
                     if (slot.isBlitzCoreBlast)
                         ApplyBlastAoE(wallHit.point + wallHit.normal * 0.15f, newTeam, defender, null, cfg, slot.damageScale);
                     defender.OnSuccessfulProjectileParry(cfg.deflectParryReward);
@@ -539,8 +539,17 @@ namespace InkBlitz3D
             return false;
         }
 
-        private void PaintAtImpactOrDownward(Vector3 point, Vector3 normal, int teamId, InkBlitzPlayerAgent shooter, float radius)
+        private void PaintAtImpactOrDownward(
+            Collider hitCollider,
+            Vector3 point,
+            Vector3 normal,
+            Vector3 projVel,
+            int teamId,
+            InkBlitzPlayerAgent shooter,
+            float radius,
+            bool isBlast = false)
         {
+            _arena.wallFluidSystem?.OnEnvironmentImpact(hitCollider, point, normal, projVel, teamId, radius, isBlast);
             if (normal.y > 0.58f)
             {
                 _arena.TurfPaint(point, radius, teamId, shooter);

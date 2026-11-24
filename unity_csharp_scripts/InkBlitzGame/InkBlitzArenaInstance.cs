@@ -19,6 +19,7 @@ namespace InkBlitz3D
         public ArenaStageBuilder stageBuilder;
         public ArenaAudioSystem audioSystem;
         public InkProjectileManager projectileManager;
+        public ObstacleWallFluidSystem wallFluidSystem;
         [UnityEngine.Serialization.FormerlySerializedAs("rainmaker")]
         public BlitzCoreObjective blitzCore;
         public List<DeflectPowerPickup> deflectPickups = new List<DeflectPowerPickup>();
@@ -66,6 +67,7 @@ namespace InkBlitz3D
 
         public int TickCount => _tickCount;
         public bool IsRenderingEnabled { get; private set; } = true;
+        public UniversalArenaCoordinator3D Coordinator => _coordinator;
 
         public bool IsHoldingForNextGen
         {
@@ -104,6 +106,9 @@ namespace InkBlitz3D
             turfGrid.Initialize(transform.position, settings);
             turfGrid.BakeWallObstacleMask(transform.Find("WallsAndCovers"));
             projectileManager.Initialize(this);
+            if (wallFluidSystem == null)
+                wallFluidSystem = GetComponent<ObstacleWallFluidSystem>() ?? gameObject.AddComponent<ObstacleWallFluidSystem>();
+            wallFluidSystem.Initialize(this);
 
             if (stageBuilder != null && !_floorUvsApplied)
             {
@@ -165,6 +170,7 @@ namespace InkBlitz3D
             {
                 if (_coordinator == null)
                     _coordinator = Object.FindAnyObjectByType<UniversalArenaCoordinator3D>();
+                wallFluidSystem?.ResetAllFluid();
                 if (_coordinator != null)
                 {
                     bool dualBrains = _coordinator.sessionMode == BrainSessionRunMode.ParallelCompetitiveSelfPlay
@@ -203,6 +209,7 @@ namespace InkBlitz3D
             Physics.SyncTransforms();
             InitializeArena(registerWithCoordinator: false);
             turfGrid?.BakeWallObstacleMask(transform.Find("WallsAndCovers"));
+            wallFluidSystem?.ResetAllFluid();
 
             // Re-sync arena material onto all paintable floors (covers repeated calls safely)
             if (stageBuilder != null && turfGrid != null)
@@ -335,6 +342,9 @@ namespace InkBlitz3D
                 turfGrid.templateFloorMaterial = stageBuilder.defaultFloorMaterial;
             turfGrid.Initialize(transform.position, settings);
             turfGrid.BakeWallObstacleMask(stageBuilder.transform.Find("WallsAndCovers"));
+            if (wallFluidSystem == null)
+                wallFluidSystem = GetComponent<ObstacleWallFluidSystem>() ?? gameObject.AddComponent<ObstacleWallFluidSystem>();
+            wallFluidSystem.RebuildForCurrentStage(this);
 
             for (int i = 0; i < stageBuilder.paintableFloorRenderers.Count; i++)
             {
@@ -596,6 +606,7 @@ namespace InkBlitz3D
             }
 
             projectileManager?.StepProjectiles(dt);
+            wallFluidSystem?.StepVisualFluid(dt);
             for (int i = 0; i < deflectPickups.Count; i++)
             {
                 if (deflectPickups[i] != null)
@@ -943,6 +954,7 @@ namespace InkBlitz3D
 
             turfGrid?.ResetTurf();
             projectileManager?.ClearAll();
+            wallFluidSystem?.ResetAllFluid();
             audioSystem?.Clear();
             blitzCore?.ResetToCenter();
             for (int i = 0; i < deflectPickups.Count; i++)
@@ -1036,9 +1048,11 @@ namespace InkBlitz3D
                 AssignAgentBodyMaterial(ag, targetMat);
             }
 
-            // 3. Projectiles & Turf Floor Texture (instant full-res 576x768 recolor!)
+            // 3. Projectiles, Obstacle Wall Fluid & Turf Floor Texture (instant full-res recolor!)
             if (projectileManager != null)
                 projectileManager.RefreshPaletteColors(preset.colorA, preset.colorB);
+            if (wallFluidSystem != null)
+                wallFluidSystem.RefreshPaletteColors(preset.colorA, preset.colorB);
             if (turfGrid != null)
                 turfGrid.RefreshPaletteColors();
         }
