@@ -813,10 +813,13 @@ def run_conscious_gwt_3d_process(
             ):
                 lang_bias = lng_rec["cand_prior_bias"].copy()
 
+            cg_live = bytes(w_rec["caregiver_utf8"]).split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
             t_inf0 = time.perf_counter()
             gwt_out = rpc.call("infer_gwt", {
                 "slot_id": 0,
                 "episode_id": ep_id,
+                "physics_tick": int(w_rec["physics_tick"]),
+                "caregiver_text": cg_live,
                 "respawn_flag": respawn_ev,
                 "enable_learning": learn_on,
                 "fovea_patch": fov_p,

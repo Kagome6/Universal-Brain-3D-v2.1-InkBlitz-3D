@@ -326,12 +326,20 @@ class WholeBrainNeuralEngineWrapper:
         self.models["d3qn_target"].load_state_dict(self.models["d3qn"].state_dict())
         self.models["d3qn_target"].eval()
 
-        core_params: List[Any] = []
+        trunk_params: List[Any] = []
+        protolang_params: List[Any] = []
         for k, m in self.models.items():
-            if k not in ("d3qn_target", "depth_net"):
-                core_params.extend(list(m.parameters()))
+            if k in ("d3qn_target", "depth_net"):
+                continue
+            if k == "protolang":
+                protolang_params.extend(list(m.parameters()))
+            else:
+                trunk_params.extend(list(m.parameters()))
         self.base_lr = 2.8e-4 * float(np.clip(cfg.lr_scale, 0.30, 2.50))
-        self.optimizer = torch.optim.AdamW(core_params, lr=self.base_lr, weight_decay=1e-4)
+        opt_groups = [{"params": trunk_params, "lr": self.base_lr, "lr_mult": 1.0}]
+        if protolang_params:
+            opt_groups.append({"params": protolang_params, "lr": self.base_lr * 2.5, "lr_mult": 2.5})
+        self.optimizer = torch.optim.AdamW(opt_groups, lr=self.base_lr, weight_decay=1e-4)
         self.depth_optimizer = torch.optim.AdamW(self.models["depth_net"].parameters(), lr=6.0e-4, weight_decay=1e-5)
 
         # Replay (O(1) Ring Buffer + PER Importance Sampling) & Per-Slot N-Step / 4-Step Chunk Queues
@@ -392,6 +400,13 @@ class WholeBrainNeuralEngineWrapper:
                 "_last_vis_step": None,
                 "strat_hist": deque([np.zeros(GWT_DIM + SELF_MODEL_DIM + MEM_COMPASS_DIM, dtype=np.float32) for _ in range(8)], maxlen=8),
                 "ctx_ring": deque(maxlen=16),
+                "step_counter": 0,
+                "self_memo_fifo": deque(maxlen=SELF_MEMO_DELAY_STEPS),
+                "last_emitted_rsi": (0, 0, 0),
+                "last_emit_tick": -999,
+                "cached_ally_oh32": np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32),
+                "cached_ally_rsi": (-1, -1, -1),
+                "cached_ally_tick": -999,
             }
             st["rssm_stoch"][0] = 1.0
             self._agent_states[slot_id] = st
@@ -528,6 +543,67 @@ class WholeBrainNeuralEngineWrapper:
         meta_err9 = np.concatenate([prev_self_err, prev_self_surp[:, None]], axis=-1).astype(np.float32)
         strat_seq = np.stack([np.stack(list(s["strat_hist"]), axis=0) for s in states], axis=0)
 
+        # v2.3.1 Dual-Loop Wernicke Epistemic Inputs (Route A: 2v2 Ally Radio; Route B: 1.0s Delayed Self-Memo)
+        use_protocortex = bool(getattr(self.cfg, "enable_vygotsky_protocortex", True))
+        use_ally_radio = use_protocortex and bool(getattr(self.cfg, "enable_2v2_teammate_radio", True))
+        cur_ticks: List[int] = []
+        ally_oh_list: List[np.ndarray] = []
+        val_ally_list: List[float] = []
+        age_ally_list: List[float] = []
+        memo_oh_list: List[np.ndarray] = []
+        val_memo_list: List[float] = []
+        memo_rsi_list: List[Tuple[int, int, int]] = []
+        for i, r in enumerate(batch_reqs):
+            st = states[i]
+            st["step_counter"] = int(st.get("step_counter", 0)) + 1
+            c_tick = int(r.get("physics_tick", st["step_counter"] * 5))
+            cur_ticks.append(c_tick)
+
+            if use_ally_radio:
+                in_pkt = r.get("ally_radio_pkt")
+                if in_pkt is None and r.get("caregiver_text"):
+                    in_pkt = parse_protolang_wire_tag(str(r.get("caregiver_text", "")))
+                if in_pkt is not None and len(in_pkt) >= 3:
+                    ar, as_, ai = int(in_pkt[0]) % PROTOLANG_R_DIM, int(in_pkt[1]) % PROTOLANG_S_DIM, int(in_pkt[2]) % PROTOLANG_I_DIM
+                    a_tick = int(in_pkt[3]) if len(in_pkt) >= 4 else int(r.get("ally_emit_tick", c_tick))
+                    if (ar, as_, ai) != tuple(st["cached_ally_rsi"]) or a_tick > int(st["cached_ally_tick"]):
+                        st["cached_ally_rsi"] = (ar, as_, ai)
+                        st["cached_ally_oh32"] = protolang_ids_to_onehot32(ar, as_, ai)
+                        st["cached_ally_tick"] = a_tick
+
+            age_ticks = max(0, c_tick - int(st.get("cached_ally_tick", -999)))
+            ally_valid = (
+                use_ally_radio
+                and (not bool(r.get("mute_ally_radio", False)))
+                and int(st["cached_ally_rsi"][0]) >= 0
+                and age_ticks <= 180
+            )
+            if ally_valid:
+                ally_oh_list.append(st["cached_ally_oh32"].copy())
+                val_ally_list.append(1.0)
+                age_ally_list.append(float(np.clip(age_ticks / 180.0, 0.0, 1.0)))
+            else:
+                ally_oh_list.append(np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32))
+                val_ally_list.append(0.0)
+                age_ally_list.append(1.0)
+
+            memo_fifo = st["self_memo_fifo"]
+            if use_protocortex and (not bool(r.get("mute_self_memo", False))) and len(memo_fifo) >= SELF_MEMO_DELAY_STEPS:
+                m_oh, m_rsi = memo_fifo[0]
+                memo_oh_list.append(m_oh.copy())
+                val_memo_list.append(1.0)
+                memo_rsi_list.append(tuple(m_rsi))
+            else:
+                memo_oh_list.append(np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32))
+                val_memo_list.append(0.0)
+                memo_rsi_list.append((-1, -1, -1))
+
+        ally_oh_np = np.stack(ally_oh_list, axis=0).astype(np.float32)
+        val_ally_np = np.array(val_ally_list, dtype=np.float32)[:, None]
+        age_ally_np = np.array(age_ally_list, dtype=np.float32)[:, None]
+        memo_oh_np = np.stack(memo_oh_list, axis=0).astype(np.float32)
+        val_memo_np = np.array(val_memo_list, dtype=np.float32)[:, None]
+
         perr_16_list = []
         spot_16_list = []
         has_prev_vis = []
@@ -607,13 +683,37 @@ class WholeBrainNeuralEngineWrapper:
             nov_s = t_prev_ssurp * 1.80
             t_nov5 = torch.stack([nov_p, nov_i, nov_w, nov_m, nov_s], dim=-1)
 
-            strat_emb, mode_logits, focus_off_xz = self.models["strat_tf"](
+            strat_emb_raw, mode_logits_raw, focus_off_raw = self.models["strat_tf"](
                 self._t(strat_seq, torch.float32), meta_err9=t_meta_err9
             )
-            gwt_base, gwt_alpha, ignition, _ = self.models["gwt"](
+            t_ally_oh = self._t(ally_oh_np, torch.float32)
+            t_val_ally = self._t(val_ally_np, torch.float32)
+            t_age_ally = self._t(age_ally_np, torch.float32)
+            t_memo_oh = self._t(memo_oh_np, torch.float32)
+            t_val_memo = self._t(val_memo_np, torch.float32)
+            if use_protocortex and "protolang" in self.models:
+                _, d_strat64, d_gwt128, _, _ = self.models["protolang"].receive_dual_packets(
+                    t_ally_oh, t_val_ally, t_age_ally, t_memo_oh, t_val_memo, t_prop, t_comp
+                )
+                strat_emb = strat_emb_raw + d_strat64
+                if float(d_strat64.abs().max().item()) > 1e-7:
+                    mode_logits = self.models["strat_tf"].goal_mode_head(strat_emb)
+                    focus_off_xz = self.models["strat_tf"].focus_offset_head(strat_emb) * 5.0
+                else:
+                    mode_logits = mode_logits_raw
+                    focus_off_xz = focus_off_raw
+            else:
+                d_strat64 = torch.zeros_like(strat_emb_raw)
+                d_gwt128 = torch.zeros_like(t_prev_gwt)
+                strat_emb = strat_emb_raw
+                mode_logits = mode_logits_raw
+                focus_off_xz = focus_off_raw
+
+            gwt_base_raw, gwt_alpha, ignition, _ = self.models["gwt"](
                 z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_emb,
                 t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
             )
+            gwt_base = gwt_base_raw + d_gwt128
             delta_gwt, next_spot_16 = self.models["topo_adapter"].compute_topdown_spotlight(
                 gwt_base, slot_aux["feat16"], slots, s_coords
             )
@@ -628,6 +728,62 @@ class WholeBrainNeuralEngineWrapper:
             z_eff = torch.tanh(z_perc + 0.70 * z_td)
             nov5_np = t_nov5.cpu().numpy()
             q_raw, spd_mod = self.models["d3qn"](z_eff, gwt_w, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
+
+            # Exact Counterfactual Positive-Listening KL (`Phi_comm` in bits): active reception vs muted reception
+            comm_kl_np = np.zeros(bsz, dtype=np.float32)
+            ally_kl_np = np.zeros(bsz, dtype=np.float32)
+            tau_pol = float(max(0.15, getattr(self.cfg, "policy_temp", 0.34)))
+            if (
+                use_protocortex
+                and "protolang" in self.models
+                and (float(d_strat64.abs().max().item()) > 1e-7 or float(d_gwt128.abs().max().item()) > 1e-7)
+            ):
+                F_nn = torch.nn.functional
+                pm_act = F_nn.softmax(mode_logits / 0.55, dim=-1)
+                pm_mut = F_nn.softmax(mode_logits_raw / 0.55, dim=-1)
+                kl_mode_all = (pm_act * (torch.log(pm_act + 1e-7) - torch.log(pm_mut + 1e-7))).sum(dim=-1) / math.log(2.0)
+
+                pi_act = F_nn.softmax(q_raw / tau_pol, dim=-1)
+                gwt_b0, _, ign0, _ = self.models["gwt"](
+                    z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_emb_raw,
+                    t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
+                )
+                dg0, _ = self.models["topo_adapter"].compute_topdown_spotlight(
+                    gwt_b0, slot_aux["feat16"], slots, s_coords
+                )
+                gw0 = gwt_b0 + dg0
+                ztd0 = (0.08 + 0.24 * ign0).unsqueeze(-1) * self.models["gwt"].topdown_z(gw0)
+                zeff0 = torch.tanh(z_perc + 0.70 * ztd0)
+                q_mut, _ = self.models["d3qn"](zeff0, gw0, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
+                pi_mut = F_nn.softmax(q_mut / tau_pol, dim=-1)
+                kl_q_all = (pi_act * (torch.log(pi_act + 1e-7) - torch.log(pi_mut + 1e-7))).sum(dim=-1) / math.log(2.0)
+                comm_kl_np = np.maximum(0.0, (kl_mode_all + kl_q_all).cpu().numpy()).astype(np.float32)
+
+                if float(val_ally_np.max()) > 0.5:
+                    _, ds_no_ally, dg_no_ally, _, _ = self.models["protolang"].receive_dual_packets(
+                        torch.zeros_like(t_ally_oh), torch.zeros_like(t_val_ally), t_age_ally,
+                        t_memo_oh, t_val_memo, t_prop, t_comp
+                    )
+                    strat_no_ally = strat_emb_raw + ds_no_ally
+                    ml_no_ally = self.models["strat_tf"].goal_mode_head(strat_no_ally)
+                    pm_no_ally = F_nn.softmax(ml_no_ally / 0.55, dim=-1)
+                    kl_mode_ally = (pm_act * (torch.log(pm_act + 1e-7) - torch.log(pm_no_ally + 1e-7))).sum(dim=-1) / math.log(2.0)
+
+                    gwt_ba, _, igna, _ = self.models["gwt"](
+                        z_perc, slot_ctx64, t_mec, t_hd, t_comp, h_next, post_stoch, t_prop, haz_p, strat_no_ally,
+                        t_prev_gwt, meta_salience=t_prev_ssurp, hab_trace=t_prev_hab, novelty_5=t_nov5,
+                    )
+                    gwt_ba = gwt_ba + dg_no_ally
+                    dga, _ = self.models["topo_adapter"].compute_topdown_spotlight(
+                        gwt_ba, slot_aux["feat16"], slots, s_coords
+                    )
+                    gwa = gwt_ba + dga
+                    ztda = (0.08 + 0.24 * igna).unsqueeze(-1) * self.models["gwt"].topdown_z(gwa)
+                    zeffa = torch.tanh(z_perc + 0.70 * ztda)
+                    q_no_ally, _ = self.models["d3qn"](zeffa, gwa, h_next, t_mec, t_hd, t_prop, t_comp, t_cf)
+                    pi_no_ally = F_nn.softmax(q_no_ally / tau_pol, dim=-1)
+                    kl_q_ally = (pi_act * (torch.log(pi_act + 1e-7) - torch.log(pi_no_ally + 1e-7))).sum(dim=-1) / math.log(2.0)
+                    ally_kl_np = np.maximum(0.0, (kl_mode_ally + kl_q_ally).cpu().numpy()).astype(np.float32)
 
             slots_np = slots.cpu().numpy()
             pstats_np = slot_aux["pixel_stats"].cpu().numpy()
@@ -685,12 +841,50 @@ class WholeBrainNeuralEngineWrapper:
                         "prev_perr_16": perr_16_np[i].copy(),
                         "prev_spot_16": spot_16_np[i].copy(),
                         "strat_seq": strat_seq[i].copy(),
+                        "ally_oh32": ally_oh_np[i].copy(),
+                        "val_ally": val_ally_np[i].copy(),
+                        "age_ally": age_ally_np[i].copy(),
+                        "memo_oh32": memo_oh_np[i].copy(),
+                        "val_memo": val_memo_np[i].copy(),
                     },
                 ))
 
             sym_id, mod_id, proto_emb, proto_bias = self.rvq.quantize(
                 gwt_np[i], self_np[i], h_np[i], req["cand_verbs"], update_ema=bool(req.get("enable_learning", True))
             )
+
+            live_rsi = (0, 0, 0)
+            radio_tx_fired = False
+            comm_gate_mag = 0.0
+            if use_protocortex and "protolang" in self.models:
+                pl_m = self.models["protolang"]
+                comm_gate_mag = 0.5 * (
+                    abs(math.tanh(float(pl_m.strat_comm_gate.item())))
+                    + abs(math.tanh(float(pl_m.gwt_comm_gate.item())))
+                )
+                with torch.no_grad():
+                    spk_oh_i, spk_ids_i, _ = pl_m.emit_packet(
+                        self._t(gwt_np[i : i + 1], torch.float32),
+                        self._t(sctx_np[i : i + 1], torch.float32),
+                        self._t(h_np[i : i + 1], torch.float32),
+                        self._t(compasses[i : i + 1], torch.float32),
+                        self._t(proprios[i : i + 1], torch.float32),
+                        self._t(proto_emb[None, :], torch.float32),
+                    )
+                spk_oh_np_i = spk_oh_i[0].cpu().numpy().astype(np.float32)
+                ids_row = spk_ids_i[0].cpu().numpy()
+                live_rsi = (int(ids_row[0]), int(ids_row[1]), int(ids_row[2]))
+                st["self_memo_fifo"].append((spk_oh_np_i, live_rsi))
+                c_tick = cur_ticks[i]
+                dt_emit = c_tick - int(st.get("last_emit_tick", -999))
+                if (
+                    int(st.get("last_emit_tick", -999)) < 0
+                    or dt_emit >= RADIO_COOLDOWN_TICKS
+                    or (dt_emit >= 20 and float(wsurp_np[i]) > 0.58)
+                ):
+                    st["last_emitted_rsi"] = live_rsi
+                    st["last_emit_tick"] = c_tick
+                    radio_tx_fired = True
 
             # Plan A Strict Motor Isolation: Broca inner-speech bias is ZERO unless explicitly unlocked!
             broca_bias = np.zeros(NUM_CANDIDATES, dtype=np.float32)
@@ -800,6 +994,14 @@ class WholeBrainNeuralEngineWrapper:
                 "slot_ctx64": sctx_np[i].astype(np.float32),
                 "cand_feats32": c_feats[i].astype(np.float32),
                 "prov_chosen_idx": int(prov_idx),
+                "emitted_pkt_rsi": tuple(st.get("last_emitted_rsi", live_rsi)),
+                "live_pkt_rsi": live_rsi,
+                "radio_tx_fired": bool(radio_tx_fired),
+                "received_ally_rsi": tuple(st["cached_ally_rsi"]) if float(val_ally_np[i, 0]) > 0.5 else (-1, -1, -1),
+                "self_memo_rsi": memo_rsi_list[i],
+                "comm_kl_bits": float(comm_kl_np[i]),
+                "ally_comm_kl_bits": float(ally_kl_np[i]),
+                "comm_gate_mag": float(comm_gate_mag),
             })
         return results
 
@@ -1181,6 +1383,11 @@ class WholeBrainNeuralEngineWrapper:
                 axis=0,
             ).astype(np.float32),
         )
+        ally_oh_t = _ctx_stack("ally_oh32", lambda _: np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32))
+        val_ally_t = _ctx_stack("val_ally", lambda _: np.zeros(1, dtype=np.float32))
+        age_ally_t = _ctx_stack("age_ally", lambda _: np.ones(1, dtype=np.float32))
+        memo_oh_t = _ctx_stack("memo_oh32", lambda _: np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32))
+        val_memo_t = _ctx_stack("val_memo", lambda _: np.zeros(1, dtype=np.float32))
 
         chosen_idx = self._t([int(b["chosen_idx"]) for b in batch], torch.long)
         rewards_nstep = self._t([float(b["nstep_return"]) for b in batch], torch.float32)
@@ -1252,14 +1459,38 @@ class WholeBrainNeuralEngineWrapper:
             prev_ssurp_t * 1.80,
         ], dim=-1)
 
-        strat_emb, mode_logits, focus_off_xz = self.models["strat_tf"](strat_seq_t, meta_err9=meta_err9_t)
+        use_protocortex_tr = bool(getattr(self.cfg, "enable_vygotsky_protocortex", True)) and ("protolang" in self.models)
+        strat_in_seq = strat_seq_t
+        hist_drop_p = float(np.clip(getattr(self.cfg, "strat_hist_bottleneck_dropout", 0.25), 0.0, 0.75))
+        if use_protocortex_tr and bsz >= 4 and hist_drop_p > 0.0 and bool((val_memo_t > 0.5).any().item()):
+            drop_hist = ((torch.rand((bsz, 1, 1), device=z.device) < hist_drop_p) & (val_memo_t.unsqueeze(-1) > 0.5)).to(z.dtype)
+            past_kept = strat_seq_t[:, :-1, :] * (1.0 - drop_hist)
+            strat_in_seq = torch.cat([past_kept, strat_seq_t[:, -1:, :]], dim=1)
+
+        strat_emb_raw, mode_logits_raw, focus_off_raw = self.models["strat_tf"](strat_in_seq, meta_err9=meta_err9_t)
+        if use_protocortex_tr:
+            _, d_strat64_tr, d_gwt128_tr, ally_emb_tr, memo_emb_tr = self.models["protolang"].receive_dual_packets(
+                ally_oh_t, val_ally_t, age_ally_t, memo_oh_t, val_memo_t, prop, comp
+            )
+            strat_emb = strat_emb_raw + d_strat64_tr
+            mode_logits = self.models["strat_tf"].goal_mode_head(strat_emb)
+            focus_off_xz = self.models["strat_tf"].focus_offset_head(strat_emb) * 5.0
+        else:
+            d_gwt128_tr = torch.zeros_like(prev_gwt_t)
+            ally_emb_tr = None
+            memo_emb_tr = None
+            strat_emb = strat_emb_raw
+            mode_logits = mode_logits_raw
+            focus_off_xz = focus_off_raw
+
         # v2.3 Dreamer-style World-Model Encoder Ownership:
         # `foveal_enc` & `slot_cortex` are owned cleanly by grounded world-model/perceptual losses (`loss_vis`, `loss_slot`, `loss_rssm`),
         # eliminating the `cos = -0.329` `L_td x L_rssm` encoder tug-of-war while preserving full gradient flow into `gwt`, `strat_tf`, and `z_td`!
-        gwt_base, alp_live, ign_live, _ = self.models["gwt"](
+        gwt_base_raw, alp_live, ign_live, _ = self.models["gwt"](
             z_perc.detach(), slot_ctx64.detach(), mec, hd, comp, h_post.detach(), post_st.detach(), prop, haz_pred.detach(), strat_emb,
             prev_gwt_t, meta_salience=prev_ssurp_t, hab_trace=prev_hab_t, novelty_5=nov5_tr,
         )
+        gwt_base = gwt_base_raw + d_gwt128_tr
         delta_gwt, topdown_gain_16 = self.models["topo_adapter"].compute_topdown_spotlight(
             gwt_base, slot_aux["feat16"].detach(), slots.detach(), s_coords.detach()
         )
@@ -1675,6 +1906,48 @@ class WholeBrainNeuralEngineWrapper:
         bias_loss = F.mse_loss(bias_pred, 0.25 * torch.tanh(q_center / 2.0))
         loss_lang = 0.20 * tf_l + 0.15 * align_l + 0.05 * bias_loss
 
+        # 4b. v2.3.1 Vygotskian 10-bit Compositional Protolanguage & Dual-Loop Positive-Listening Loss
+        loss_protolang = z.new_tensor(0.0)
+        if use_protocortex_tr:
+            spk_pkt_oh32, _, spk_probs = self.models["protolang"].emit_packet(
+                gwt_live.detach(), slot_ctx64.detach(), h_post.detach(), comp, prop, p_emb_t
+            )
+            chosen_modes_np = chosen_mode.detach().cpu().numpy()
+            ego_refs_np = np.array(
+                [
+                    derive_ego_referent_targets_np(b["proprio"], b["mem_compass"], int(chosen_modes_np[i_b]))
+                    for i_b, b in enumerate(batch)
+                ],
+                dtype=np.int64,
+            )
+            ego_refs_t = self._t(ego_refs_np, torch.long)
+            has_ally_ref = np.array(
+                [1.0 if ("ally_ref_targets" in b and b["ally_ref_targets"] is not None) else 0.0 for b in batch],
+                dtype=np.float32,
+            )[:, None]
+            val_ally_sup = val_ally_t * self._t(has_ally_ref, torch.float32)
+            ally_refs_np = np.array(
+                [
+                    b["ally_ref_targets"] if ("ally_ref_targets" in b and b["ally_ref_targets"] is not None) else (0, 0, 0)
+                    for b in batch
+                ],
+                dtype=np.int64,
+            )
+            ally_refs_t = self._t(ally_refs_np, torch.long)
+            ego_q_tr = torch.cat([prop, comp], dim=-1)
+            loss_protolang = self.models["protolang"].referential_and_mi_loss(
+                spk_pkt_oh32=spk_pkt_oh32,
+                spk_probs_tuple=spk_probs,
+                ego_ref_targets=ego_refs_t,
+                ego_q=ego_q_tr,
+                ally_emb=ally_emb_tr,
+                valid_ally=val_ally_sup,
+                ally_ref_targets=ally_refs_t,
+                memo_emb=memo_emb_tr,
+                valid_memo=val_memo_t,
+                sustained_mode_targets=chosen_mode.detach(),
+            )
+
         # 5. L2-SP Continual Anchor Regularization against Catastrophic Forgetting (exempting newly added parameters on legacy ckpts)
         loss_l2sp = z.new_tensor(0.0)
         if self._anchor_weights is not None and float(self.cfg.continual_anchor_l2) > 0.0:
@@ -1690,7 +1963,7 @@ class WholeBrainNeuralEngineWrapper:
 
         total_loss = (
             loss_td + loss_rssm + cf_loss + loss_vis + loss_speed + loss_slot
-            + loss_strat + loss_self + loss_dagger + loss_lang + loss_l2sp
+            + loss_strat + loss_self + loss_dagger + loss_lang + loss_protolang + loss_l2sp
         )
 
         # 6. Immediate Numerical Divergence / Q-Explosion Defense (100% Anchor Restore + Optimizer Purge)
@@ -1893,7 +2166,7 @@ class WholeBrainNeuralEngineWrapper:
         if lr_scale is not None:
             new_lr = 2.8e-4 * float(np.clip(lr_scale, 0.30, 2.50))
             for pg in self.optimizer.param_groups:
-                pg["lr"] = new_lr
+                pg["lr"] = new_lr * float(pg.get("lr_mult", 1.0))
         self._snapshot_anchor_weights()
 
     def save_checkpoint(self, path: str, extra_meta: Optional[Dict[str, Any]] = None) -> None:

@@ -47,7 +47,7 @@ import socket
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -128,6 +128,12 @@ from universal_brain_3d_core import (
     start_parent_and_stdin_watchdog,
     synthesize_joint_attention_phrase,
     unpack_ub3d_sensory_frame,
+)
+from brain3d_config_ipc import (
+    derive_ego_referent_targets_np,
+    format_protolang_glyph,
+    pack_protolang_wire_tag,
+    parse_protolang_wire_tag,
 )
 
 HOLD_INTER_GEN_WAIT = 250
@@ -963,7 +969,7 @@ def run_population_gpu_server_process(
             try:
                 batch_items.append(req_q.get(timeout=0.004))
                 t_end = time.perf_counter() + (0.0005 if pop_size == 1 else 0.0010)
-                target_batch = max(2, pop_size * (2 if max_opp_slots > 0 else 1))
+                target_batch = max(4, pop_size * (4 if max_opp_slots > 0 else 2))
                 while time.perf_counter() < t_end and len(batch_items) < target_batch:
                     try:
                         batch_items.append(req_q.get_nowait())
@@ -1081,6 +1087,12 @@ class LocalCpuBrainAgentDriver:
         self.latest_hold_reason: int = HOLD_GO_CLEAR
         self._last_gwt_snap: Optional[Dict[str, Any]] = None
         self.latest_ubnt_ctx: Optional[Dict[str, Any]] = None
+        self.latest_emitted_rsi: Tuple[int, int, int] = (0, 0, 0)
+        self.latest_received_ally_rsi: Tuple[int, int, int] = (-1, -1, -1)
+        self.latest_comm_kl_bits: float = 0.0
+        self.latest_ally_comm_kl_bits: float = 0.0
+        self.latest_ego_ref_targets: Tuple[int, int, int] = (0, 0, 0)
+        self.latest_radio_wire_str: str = ""
 
     def _enqueue_rpc(self, op: str, payload: Dict[str, Any]) -> int:
         self._rpc_seq += 1
@@ -1195,6 +1207,11 @@ class LocalCpuBrainAgentDriver:
         if want_cog:
             gwt_pay = {
                 "episode_id": ep_cur,
+                "physics_tick": tick,
+                "caregiver_text": str(obs.get("caregiver_text", "")),
+                "ally_radio_pkt": obs.get("ally_radio_pkt"),
+                "mute_ally_radio": bool(obs.get("mute_ally_radio", False)),
+                "mute_self_memo": bool(obs.get("mute_self_memo", False)),
                 "respawn_flag": respawn_ev,
                 "enable_learning": self.trainable,
                 "fovea_patch": obs["fovea_patch"],
@@ -1300,6 +1317,14 @@ class LocalCpuBrainAgentDriver:
             self.last_world_surprise = float(gwt_out.get("world_surprise", 0.0))
             self.last_ignition = float(gwt_out.get("ignition", 0.0))
             self.last_self_surprise = float(gwt_out.get("self_surprise", 0.0))
+            em_rsi = gwt_out.get("emitted_pkt_rsi", (0, 0, 0))
+            self.latest_emitted_rsi = (int(em_rsi[0]), int(em_rsi[1]), int(em_rsi[2]))
+            rc_rsi = gwt_out.get("received_ally_rsi", (-1, -1, -1))
+            self.latest_received_ally_rsi = (int(rc_rsi[0]), int(rc_rsi[1]), int(rc_rsi[2]))
+            self.latest_comm_kl_bits = float(gwt_out.get("comm_kl_bits", 0.0))
+            self.latest_ally_comm_kl_bits = float(gwt_out.get("ally_comm_kl_bits", 0.0))
+            self.latest_ego_ref_targets = derive_ego_referent_targets_np(prop, mc24, self.last_goal_mode)
+            self.latest_radio_wire_str = pack_protolang_wire_tag(*self.latest_emitted_rsi)
             if "vis_slot_coords" in gwt_out and "vis_slot_valence" in gwt_out:
                 self.last_slot_coords = gwt_out["vis_slot_coords"].copy()
                 self.last_slot_valence = gwt_out["vis_slot_valence"].copy()
@@ -1436,6 +1461,8 @@ class LocalCpuBrainAgentDriver:
                 if beta_t > 0.02:
                     tr_d["teacher_q"] = tq
                     tr_d["teacher_surv"] = tsurv
+                if obs.get("ally_ref_targets") is not None:
+                    tr_d["ally_ref_targets"] = tuple(obs["ally_ref_targets"])
                 self.pending_tr = tr_d
         else:
             just_switched_cand = False
@@ -1562,7 +1589,11 @@ class LocalCpuBrainAgentDriver:
             stn_gains=bg.get("stn_gains", np.ones(4, dtype=np.float32)),
             believed_self_pos=sp["believed_self_pos"],
             pose_drift_vec=sp.get("pose_drift_vec", np.zeros(3, dtype=np.float32)),
-            inner_speech_text=self.latest_strategy_tag,
+            inner_speech_text=(
+                f"📡{format_protolang_glyph(*self.latest_emitted_rsi)} Φc={self.latest_comm_kl_bits:.2f}b | {self.latest_strategy_tag}"
+                if self.latest_strategy_tag
+                else f"📡{format_protolang_glyph(*self.latest_emitted_rsi)} Φc={self.latest_comm_kl_bits:.2f}b"
+            ),
             learning_enabled=bool(self.trainable),
             mip_cut_mask=int(gs.get("mip_cut_mask", 3)),
         )
@@ -1702,6 +1733,70 @@ def step_observation_pair(
     act_a = drv_a.finish_step_observation(ctx_a, out_a)
     act_b = drv_b.finish_step_observation(ctx_b, out_b)
     return act_a, act_b
+
+
+def step_observation_quad(
+    drivers: Sequence[LocalCpuBrainAgentDriver],
+    obs_list: Sequence[Dict[str, Any]],
+    dt: float,
+    cog_stride: int = 4,
+) -> List[Tuple[np.ndarray, int, bool, np.ndarray]]:
+    """
+    Dispatch up to 4 concurrent 2v2 `infer_gwt` requests (`A1, A2, B1, B2`) into `req_q` simultaneously
+    so `PopGPUServer` micro-batches same-team brains onto 1 GPU pass with zero sequential lockstep lag!
+    """
+    n_d = len(drivers)
+    if n_d == 0:
+        return []
+    async_spectate = all((not d.trainable) for d in drivers)
+    ctxs = [
+        d.begin_step_observation(obs_i, dt, cog_stride=cog_stride, async_gwt=async_spectate)
+        for d, obs_i in zip(drivers, obs_list)
+    ]
+    rids = [c["rid_gwt"] for c in ctxs]
+    outs: List[Optional[Dict[str, Any]]] = [None] * n_d
+    shared_resp_q = drivers[0].resp_q
+
+    if async_spectate:
+        while True:
+            try:
+                got_id, res = shared_resp_q.get_nowait()
+            except queue.Empty:
+                break
+            for idx_d, d in enumerate(drivers):
+                if rids[idx_d] is not None and got_id == rids[idx_d]:
+                    outs[idx_d] = res
+                    rids[idx_d] = None
+                    break
+                if d._inflight_rid is not None and got_id == d._inflight_rid:
+                    d._inflight_rid = None
+                    if d._inflight_ep == int(obs_list[idx_d]["episode_id"]):
+                        outs[idx_d] = res
+                    break
+
+    needed: Dict[int, int] = {int(r): i for i, r in enumerate(rids) if r is not None}
+    if needed:
+        deadline = time.perf_counter() + 3.5
+        remaining = set(needed.keys())
+        while remaining and time.perf_counter() < deadline:
+            if drivers[0].stop_ev is not None and drivers[0].stop_ev.is_set():
+                break
+            try:
+                got_id, res = shared_resp_q.get(timeout=min(0.05, max(0.004, deadline - time.perf_counter())))
+                if got_id in remaining:
+                    outs[needed[got_id]] = res
+                    remaining.remove(got_id)
+                else:
+                    for idx_d, d in enumerate(drivers):
+                        if d._inflight_rid is not None and got_id == d._inflight_rid:
+                            d._inflight_rid = None
+                            if d._inflight_ep == int(obs_list[idx_d]["episode_id"]):
+                                outs[idx_d] = res
+                            break
+            except queue.Empty:
+                continue
+
+    return [d.finish_step_observation(c, o) for d, c, o in zip(drivers, ctxs, outs)]
 
 
 # ==============================================================================
@@ -1975,6 +2070,12 @@ def run_arena_slot_worker_process(
                 last_ep_a = -1
 
                 def _unpack_obs(fr: Dict[str, Any], cum_score: float) -> Dict[str, Any]:
+                    raw_cg = fr.get("caregiver_utf8", b"")
+                    cg_txt = (
+                        raw_cg.decode("utf-8", errors="ignore").strip()
+                        if isinstance(raw_cg, (bytes, bytearray))
+                        else str(raw_cg or "").strip()
+                    )
                     return {
                         "episode_id": fr["episode_id"],
                         "action_epoch": fr["action_epoch"],
@@ -1993,6 +2094,7 @@ def run_arena_slot_worker_process(
                         "proprio": fr["proprio"],
                         "visible_entities": fr["visible_entities"],
                         "fovea_patch": fr["fovea_patch"],
+                        "caregiver_text": cg_txt,
                     }
 
                 def _record_ep_done_a(fr_a: Dict[str, Any], obs_a: Dict[str, Any]) -> None:
@@ -2240,6 +2342,7 @@ def run_arena_slot_worker_process(
                                             motor_verb=vb_a, commit_gate_open=gate_a,
                                             veto_active=learner_driver.latest_veto, hold_reason_id=learner_driver.latest_hold_reason,
                                             target_pose=tp_a, gaze_ypd=gz_a, telemetry6=np.zeros(6, dtype=np.float32),
+                                            inner_speech_tag=learner_driver.latest_radio_wire_str,
                                             time_scale=cfg.time_scale,
                                         ))
                                     except OSError:
@@ -2255,6 +2358,7 @@ def run_arena_slot_worker_process(
                                             cmd_seq=cmd_seq, episode_id=fr_b["episode_id"], action_epoch=fr_b["action_epoch"],
                                             motor_verb=vb_b, commit_gate_open=gate_b, veto_active=False, hold_reason_id=HOLD_GO_CLEAR,
                                             target_pose=tp_bw, gaze_ypd=gz_bw, telemetry6=np.zeros(6, dtype=np.float32),
+                                            inner_speech_tag=opp_driver.latest_radio_wire_str,
                                             time_scale=cfg.time_scale,
                                         ))
                                     except OSError:
@@ -2781,6 +2885,414 @@ def run_arena_pbt_coordinator(
         league.snapshots.clear()
 
 
+def run_2v2_spectate_worker_process(
+    base_cfg: Brain3DConfig,
+    env_backend: str,
+    base_port: int,
+    req_q: mp.Queue,
+    resp_q: mp.Queue,
+    gen_cmd_q: mp.Queue,
+    telem_q: mp.Queue,
+    stop_ev,
+    ready_ev,
+    ux_telemetry_port: int = 0,
+) -> None:
+    """
+    Zero-GPU (`Barrier 1` verified) 2v2 4-Brain Vygotsky Narrowband Radio Worker:
+      - Ports: `base_port + 0` (Team A1), `base_port + 1` (Team B1),
+               `base_port + 2` (Team A2), `base_port + 3` (Team B2).
+      - Multiplexes all 4 embodied brains onto 1 `PopGPUServer` via `step_observation_quad`,
+        feeding `LiveRosettaStoneProbe` and streaming `evt="rosetta_radio"` live HUD updates!
+    """
+    if "torch" in sys.modules:
+        raise RuntimeError("Barrier 1 violation in 2v2 Spectate Worker!")
+    _ignore_sigint_in_worker()
+    orch_ppid = os.getppid()
+
+    from vygotsky_rosetta_2v2 import ALL_2V2_KEYS, HeadToHead2v2Tactical3DArena, LiveRosettaStoneProbe
+
+    cfg = Brain3DConfig(**asdict(base_cfg))
+    dt = 1.0 / 60.0
+    wmin = np.array(cfg.world_min, dtype=np.float32)
+    wmax = np.array(cfg.world_max, dtype=np.float32)
+
+    # Socket index mapping: 0=A1 (+1,0), 1=B1 (-1,0), 2=A2 (+1,1), 3=B2 (-1,1)
+    team_signs = (+1, -1, +1, -1)
+    ally_of = (2, 3, 0, 1)
+    srvs: List[Optional[socket.socket]] = [None, None, None, None]
+    conns: List[Optional[socket.socket]] = [None, None, None, None]
+    srv_ux: Optional[socket.socket] = None
+    conn_ux: Optional[socket.socket] = None
+    ux_seq = 0
+    last_ux_push_ts = 0.0
+    last_rosetta_emit_ts = 0.0
+
+    if env_backend == "unity_tcp":
+        for p_i in range(4):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((cfg.unity_host, int(base_port) + p_i))
+            s.listen(1)
+            s.settimeout(0.25)
+            srvs[p_i] = s
+        if ux_telemetry_port > 0:
+            try:
+                srv_ux = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                srv_ux.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                srv_ux.bind((cfg.unity_host, int(ux_telemetry_port)))
+                srv_ux.listen(1)
+                srv_ux.setblocking(False)
+            except OSError:
+                srv_ux = None
+
+    drivers: List[LocalCpuBrainAgentDriver] = []
+    for p_i in range(4):
+        d_cfg = Brain3DConfig(**asdict(cfg))
+        if p_i != 0:
+            d_cfg.enable_strategy_kb = False  # Only A1 drives Strategy KB SQLite/Ollama
+        drivers.append(
+            LocalCpuBrainAgentDriver(
+                d_cfg,
+                brain_id=(0 if team_signs[p_i] > 0 else 1),
+                worker_id=0,
+                req_q=req_q,
+                resp_q=resp_q,
+                trainable=False,
+                agent_state_id=p_i,
+                stop_ev=stop_ev,
+            )
+        )
+
+    rosetta = LiveRosettaStoneProbe(ema_decay=0.9990)
+    last_radio_tx_tick = [-999, -999, -999, -999]
+    ready_ev.set()
+
+    def _unpack_u_obs(fr: Dict[str, Any], cum_sc: float) -> Dict[str, Any]:
+        raw_cg = fr.get("caregiver_utf8", b"")
+        cg_txt = (
+            raw_cg.decode("utf-8", errors="ignore").strip()
+            if isinstance(raw_cg, (bytes, bytearray))
+            else str(raw_cg or "").strip()
+        )
+        return {
+            "episode_id": fr["episode_id"],
+            "action_epoch": fr["action_epoch"],
+            "stage_id": int(fr.get("stage_id", 0)) or int(getattr(cfg, "default_stage_id", 2)),
+            "physics_tick": fr["frame_seq"],
+            "can_commit_now": 1 if (fr["flags"] & 1) else 0,
+            "episode_done": 1 if (fr["flags"] & 2) else 0,
+            "respawn_flag": fr["respawn_flag"],
+            "visible_count": fr["visible_count"],
+            "cumulative_score": cum_sc,
+            "last_step_reward": fr["step_reward"],
+            "hazard_level": fr["hazard_level"],
+            "self_pos": fr["self_pos"],
+            "self_vel": fr["self_vel"],
+            "self_yaw_pitch": fr["self_yaw_pitch"],
+            "proprio": fr["proprio"],
+            "visible_entities": fr["visible_entities"],
+            "fovea_patch": fr["fovea_patch"],
+            "caregiver_text": cg_txt,
+        }
+
+    def _maybe_push_ux_and_rosetta(cur_tick: int) -> None:
+        nonlocal conn_ux, ux_seq, last_ux_push_ts, last_rosetta_emit_ts
+        now_t = time.perf_counter()
+        for p_i in range(4):
+            if cur_tick - last_radio_tx_tick[p_i] >= 60 or last_radio_tx_tick[p_i] < 0:
+                last_radio_tx_tick[p_i] = cur_tick
+                d_i = drivers[p_i]
+                rosetta.observe_packet(
+                    d_i.latest_emitted_rsi,
+                    d_i.latest_ego_ref_targets,
+                    canonical_pos_xz=(
+                        d_i.latest_ubnt_ctx["obs"]["self_pos"][[0, 2]]
+                        if d_i.latest_ubnt_ctx is not None
+                        else None
+                    ),
+                    comm_kl_bits=d_i.latest_comm_kl_bits,
+                    ally_comm_kl_bits=d_i.latest_ally_comm_kl_bits,
+                )
+
+        if (now_t - last_rosetta_emit_ts) >= 0.55:
+            last_rosetta_emit_ts = now_t
+            rm = rosetta.compute_metrics()
+            r_a1 = drivers[0].latest_emitted_rsi
+            r_a2 = drivers[2].latest_emitted_rsi
+            r_b1 = drivers[1].latest_emitted_rsi
+            r_b2 = drivers[3].latest_emitted_rsi
+            phi_a = 0.5 * (drivers[0].latest_comm_kl_bits + drivers[2].latest_comm_kl_bits)
+            phi_ally_a = 0.5 * (drivers[0].latest_ally_comm_kl_bits + drivers[2].latest_ally_comm_kl_bits)
+            try:
+                telem_q.put_nowait({
+                    "evt": "rosetta_radio",
+                    "glyph_a1": format_protolang_glyph(*r_a1),
+                    "glyph_a2": format_protolang_glyph(*r_a2),
+                    "glyph_b1": format_protolang_glyph(*r_b1),
+                    "glyph_b2": format_protolang_glyph(*r_b2),
+                    "gloss_a1": rosetta.decode_packet_gloss(*r_a1, lang="ja"),
+                    "gloss_a2": rosetta.decode_packet_gloss(*r_a2, lang="ja"),
+                    "gloss_b1": rosetta.decode_packet_gloss(*r_b1, lang="ja"),
+                    "gloss_b2": rosetta.decode_packet_gloss(*r_b2, lang="ja"),
+                    "joint_mi": rm["joint_msg_mi_bits"],
+                    "slot_mi": rm["sum_slot_mi_bits"],
+                    "phi_comm": round(phi_a, 4),
+                    "phi_ally": round(phi_ally_a, 4),
+                    "unique_pkts": rm["unique_packets"],
+                    "top_lex": rm["top_lexicon"][:4],
+                })
+            except queue.Full:
+                pass
+
+        if srv_ux is None:
+            return
+        if conn_ux is None:
+            try:
+                c_ux, _ = srv_ux.accept()
+                c_ux.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                c_ux.setblocking(False)
+                conn_ux = c_ux
+            except OSError:
+                pass
+        if conn_ux is not None and (now_t - last_ux_push_ts) >= 0.055:
+            ubnt_pkt = drivers[0].build_ubnt_packet(ux_seq + 1)
+            if ubnt_pkt is not None:
+                ubwm_pkt = drivers[0].build_ubwm_packet()
+                payload = ubnt_pkt + ubwm_pkt if ubwm_pkt is not None else ubnt_pkt
+                sent_ok, fatal_d = _sendall_nonblocking_safe(conn_ux, payload, timeout_s=0.06)
+                if sent_ok:
+                    ux_seq += 1
+                    last_ux_push_ts = now_t
+                elif fatal_d:
+                    try:
+                        conn_ux.close()
+                    except Exception:
+                        pass
+                    conn_ux = None
+
+    try:
+        g_cmd = gen_cmd_q.get(timeout=15.0)
+        if g_cmd.get("cmd") == "stop":
+            return
+        opp_bid = int(g_cmd.get("opp_brain_id", 1))
+        eff_train = bool(g_cmd.get("trainable", False))
+        will_sleep = bool(g_cmd.get("sleep_after_ep", False))
+        for p_i in range(4):
+            apply_checkpoint_genes_to_cfg(drivers[p_i].cfg, g_cmd.get("genes"))
+            if team_signs[p_i] > 0:
+                drivers[p_i].rebind_brain(0, "pure_neural", eff_train)
+            else:
+                drivers[p_i].rebind_brain(opp_bid, "pure_neural", False)
+
+        wins, losses, draws, eps_done = 0, 0, 0, 0
+
+        if env_backend != "unity_tcp":
+            arena2v2 = HeadToHead2v2Tactical3DArena(cfg, seed=cfg.seed)
+            key_order = ((+1, 0), (-1, 0), (+1, 1), (-1, 1))
+            while not stop_ev.is_set():
+                if not is_windows_pid_alive(orch_ppid):
+                    stop_ev.set()
+                    break
+                obs_map = arena2v2.reset_episode()
+                last_radio_tx_tick = [-999, -999, -999, -999]
+                while not stop_ev.is_set():
+                    obs_seq = [obs_map[k] for k in key_order]
+                    act_seq = step_observation_quad(drivers, obs_seq, dt, cog_stride=4)
+                    acts_map = {}
+                    for p_i, k in enumerate(key_order):
+                        acts_map[k] = act_seq[p_i]
+                        arena2v2.submit_radio_packet(
+                            k, drivers[p_i].latest_emitted_rsi, sender_ego_ref=drivers[p_i].latest_ego_ref_targets
+                        )
+                    _maybe_push_ux_and_rosetta(arena2v2.physics_tick)
+                    obs_map, done, winner = arena2v2.step_quad(acts_map, dt)
+                    if done:
+                        eps_done += 1
+                        sc_a = 0.5 * (
+                            float(arena2v2.agents[(+1, 0)]["cum_score"]) + float(arena2v2.agents[(+1, 1)]["cum_score"])
+                        )
+                        if winner > 0:
+                            wins += 1
+                        elif winner < 0:
+                            losses += 1
+                        else:
+                            draws += 1
+                        telem_q.put({
+                            "evt": "spectate_match",
+                            "match": eps_done,
+                            "score_a": round(sc_a, 2),
+                            "wins_a": wins,
+                            "wins_b": losses,
+                            "draws": draws,
+                        })
+                        break
+        else:
+            cmd_seq = 0
+            cum_a = [0.0, 0.0]
+            last_ep_a = -1
+            while not stop_ev.is_set():
+                if not is_windows_pid_alive(orch_ppid):
+                    stop_ev.set()
+                    break
+                watch = [s for s in srvs if s is not None] + [c for c in conns if c is not None]
+                if not watch:
+                    time.sleep(0.02)
+                    continue
+                readable, _, _ = select.select(watch, [], [], 0.25)
+
+                for p_i in range(4):
+                    if srvs[p_i] is not None and srvs[p_i] in readable:
+                        if conns[p_i] is not None:
+                            try:
+                                conns[p_i].close()
+                            except Exception:
+                                pass
+                            conns[p_i] = None
+                        try:
+                            c_new, _ = srvs[p_i].accept()
+                            c_new.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                            c_new.settimeout(5.0)
+                            conns[p_i] = c_new
+                        except OSError:
+                            conns[p_i] = None
+
+                active_idxs = [p_i for p_i in range(4) if conns[p_i] is not None]
+                trig_idxs = [p_i for p_i in active_idxs if conns[p_i] in readable]
+                if not trig_idxs:
+                    continue
+
+                # Wait up to 15ms so all active Unity bridges in the same physics step batch together!
+                missing_idxs = [p_i for p_i in active_idxs if p_i not in trig_idxs]
+                if missing_idxs:
+                    r_extra, _, _ = select.select([conns[p_i] for p_i in missing_idxs], [], [], 0.015)
+                    for p_i in missing_idxs:
+                        if conns[p_i] in r_extra:
+                            trig_idxs.append(p_i)
+                trig_idxs.sort()
+
+                frames: Dict[int, Dict[str, Any]] = {}
+                for p_i in trig_idxs:
+                    sock_i = conns[p_i]
+                    if sock_i is None:
+                        continue
+                    raw_pkt = _recv_ub3d_packet(sock_i)
+                    if raw_pkt is None:
+                        try:
+                            sock_i.close()
+                        except Exception:
+                            pass
+                        conns[p_i] = None
+                        continue
+                    fr_i = unpack_ub3d_sensory_frame(raw_pkt)
+                    if fr_i is not None:
+                        frames[p_i] = fr_i
+
+                if not frames:
+                    continue
+
+                ready_p = sorted(frames.keys())
+                batch_drvs: List[LocalCpuBrainAgentDriver] = []
+                batch_obs: List[Dict[str, Any]] = []
+                ep_done_a1: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+
+                for p_i in ready_p:
+                    fr_i = frames[p_i]
+                    if p_i in (0, 2):
+                        w_slot = 0 if p_i == 0 else 1
+                        if p_i == 0 and fr_i["episode_id"] != last_ep_a:
+                            cum_a = [0.0, 0.0]
+                            last_ep_a = fr_i["episode_id"]
+                            last_radio_tx_tick = [-999, -999, -999, -999]
+                        cum_a[w_slot] += fr_i["step_reward"]
+                        obs_i = _unpack_u_obs(fr_i, cum_a[w_slot])
+                    else:
+                        obs_i = canonicalize_team_observation(_unpack_u_obs(fr_i, 0.0), -1, wmin, wmax)
+
+                    # Attach teammate's latest 1st-person POMDP referent for CTDE positive-listening learning!
+                    ally_idx = ally_of[p_i]
+                    if eff_train and p_i in (0, 2) and parse_protolang_wire_tag(obs_i.get("caregiver_text", "")) is not None:
+                        obs_i["ally_ref_targets"] = drivers[ally_idx].latest_ego_ref_targets
+
+                    batch_drvs.append(drivers[p_i])
+                    batch_obs.append(obs_i)
+                    if p_i == 0 and obs_i["episode_done"]:
+                        ep_done_a1 = (fr_i, obs_i)
+
+                batch_acts = step_observation_quad(batch_drvs, batch_obs, dt, cog_stride=4)
+                cmd_seq += 1
+
+                for (p_i, act_i) in zip(ready_p, batch_acts):
+                    sock_i = conns[p_i]
+                    if sock_i is None:
+                        continue
+                    fr_i = frames[p_i]
+                    tp_i, vb_i, gate_i, gz_i = act_i
+                    if team_signs[p_i] < 0:
+                        tp_i, gz_i = uncanonicalize_team_motor(tp_i, gz_i, -1)
+                    try:
+                        sock_i.sendall(pack_ubmc_motor_command(
+                            cmd_seq=cmd_seq,
+                            episode_id=fr_i["episode_id"],
+                            action_epoch=fr_i["action_epoch"],
+                            motor_verb=vb_i,
+                            commit_gate_open=gate_i,
+                            veto_active=drivers[p_i].latest_veto,
+                            hold_reason_id=drivers[p_i].latest_hold_reason,
+                            target_pose=tp_i,
+                            gaze_ypd=gz_i,
+                            telemetry6=np.zeros(6, dtype=np.float32),
+                            inner_speech_tag=drivers[p_i].latest_radio_wire_str,
+                            time_scale=cfg.time_scale,
+                        ))
+                    except OSError:
+                        try:
+                            sock_i.close()
+                        except Exception:
+                            pass
+                        conns[p_i] = None
+
+                if 0 in frames:
+                    _maybe_push_ux_and_rosetta(int(frames[0]["frame_seq"]))
+
+                if ep_done_a1 is not None:
+                    fr_a1, obs_a1 = ep_done_a1
+                    eps_done += 1
+                    mean_team_sc = 0.5 * (cum_a[0] + cum_a[1])
+                    term_rew = float(fr_a1["step_reward"])
+                    if term_rew > 5.0 or float(obs_a1["proprio"][PROPRIO_IDX_OBJ_PROGRESS]) > 0.52:
+                        wins += 1
+                    elif term_rew < -5.0 or float(obs_a1["proprio"][PROPRIO_IDX_OBJ_PROGRESS]) < 0.48:
+                        losses += 1
+                    else:
+                        draws += 1
+                    if will_sleep and drivers[0].strategy_ctrl is not None:
+                        from strategy_knowledge_engine import set_sleep_consolidation_active
+
+                        set_sleep_consolidation_active(drivers[0].strategy_ctrl.db.db_path, True, max_hold_s=15.0)
+                    telem_q.put({
+                        "evt": "spectate_match",
+                        "match": int(eps_done),
+                        "score_a": round(float(mean_team_sc), 2),
+                        "wins_a": int(wins),
+                        "wins_b": int(losses),
+                        "draws": int(draws),
+                    })
+    finally:
+        for d in drivers:
+            d.close()
+        for q_obj in (req_q, resp_q, gen_cmd_q, telem_q):
+            try:
+                q_obj.cancel_join_thread()
+            except Exception:
+                pass
+        for c in [*conns, conn_ux, *srvs, srv_ux]:
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+
+
 def run_arena_spectate_coordinator(
     base_cfg: Brain3DConfig,
     *,
@@ -2792,6 +3304,7 @@ def run_arena_spectate_coordinator(
     continual_learning: bool = False,
     continual_save_path: str = "",
     continual_sleep_epochs: int = 2,
+    spectate_2v2: bool = False,
     parent_pid: int = 0,
     watch_stdin: bool = False,
 ) -> Dict[str, Any]:
@@ -2834,11 +3347,18 @@ def run_arena_spectate_coordinator(
     )
     eff_ux_port = int(ux_port) if int(ux_port) > 0 else (int(base_port) + 100 if env_backend == "unity_tcp" else 0)
     w_ready = ctx.Event()
-    wp = ctx.Process(
-        target=run_arena_slot_worker_process,
-        args=(0, base_cfg, env_backend, "self_play", base_port, base_port + 1, req_q, resp_queues[0], gen_cmd_q, telem_q, stop_ev, w_ready, eff_ux_port),
-        name="ArenaSpectateWorker",
-    )
+    if spectate_2v2:
+        wp = ctx.Process(
+            target=run_2v2_spectate_worker_process,
+            args=(base_cfg, env_backend, base_port, req_q, resp_queues[0], gen_cmd_q, telem_q, stop_ev, w_ready, eff_ux_port),
+            name="ArenaSpectate2v2Worker",
+        )
+    else:
+        wp = ctx.Process(
+            target=run_arena_slot_worker_process,
+            args=(0, base_cfg, env_backend, "self_play", base_port, base_port + 1, req_q, resp_queues[0], gen_cmd_q, telem_q, stop_ev, w_ready, eff_ux_port),
+            name="ArenaSpectateWorker",
+        )
 
     matches_observed = 0
     prev_wins_a = 0
@@ -2905,7 +3425,9 @@ def run_arena_spectate_coordinator(
                 break
             try:
                 pkt = telem_q.get(timeout=0.5)
-                if pkt.get("evt") == "spectate_match":
+                if pkt.get("evt") == "rosetta_radio":
+                    _emit_pbt_stat(pkt)
+                elif pkt.get("evt") == "spectate_match":
                     matches_observed = int(pkt.get("match", matches_observed + 1))
                     cur_wins_a = int(pkt.get("wins_a", 0))
                     won_this = cur_wins_a > prev_wins_a
@@ -3074,6 +3596,7 @@ def main() -> int:
     ap.add_argument("--load-weights", type=str, default="")
     ap.add_argument("--opp-weights", type=str, default="")
     ap.add_argument("--continual-learn", action="store_true", default=False)
+    ap.add_argument("--spectate-2v2", action="store_true", default=False, help="Enable 2v2 4-brain Vygotsky narrowband radio spectate mode")
     ap.add_argument("--save-continual-weights", type=str, default="")
     ap.add_argument("--ollama-model", type=str, default="gemma4:12b")
     ap.add_argument("--ollama-url", type=str, default="http://127.0.0.1:11434")
@@ -3123,6 +3646,7 @@ def main() -> int:
             continual_learning=cont_on,
             continual_save_path=cont_save,
             continual_sleep_epochs=max(0, int(args.sleep_epochs)) if int(args.sleep_consolidation) != 0 else 0,
+            spectate_2v2=bool(args.spectate_2v2),
             parent_pid=args.parent_pid,
             watch_stdin=args.watch_stdin,
         )

@@ -211,6 +211,15 @@ PROTO_EMBED_DIM = 32
 INNER_SPEECH_EMBED_DIM = 32
 S640_DIGEST_BYTES = 640
 
+# v2.3.1 Vygotskian 10-bit Compositional Protolanguage & 2v2 Narrowband Radio
+PROTOLANG_R_DIM = 8               # 3-bit discrete slot 0 (ungrounded spatial/topological code ◈0..◈7)
+PROTOLANG_S_DIM = 16              # 4-bit discrete slot 1 (ungrounded tactical/salience code ◆0..◆F)
+PROTOLANG_I_DIM = 8               # 3-bit discrete slot 2 (ungrounded intent/commitment code ▶0..▶7)
+PROTOLANG_TOTAL_OH_DIM = PROTOLANG_R_DIM + PROTOLANG_S_DIM + PROTOLANG_I_DIM  # 32D (10 bits total)
+PROTOLANG_CTX_DIM = 32            # 32D Wernicke dual-loop epistemic comprehension vector
+RADIO_COOLDOWN_TICKS = 60         # 1.0 Hz narrowband radio rate limit at 60 Hz physics
+SELF_MEMO_DELAY_STEPS = 12        # ~1.0s temporal self-dialogue commitment delay in ConsciousGWT steps
+
 # Basal Ganglia STN-SNr Timing Modes & Generalized Hold Reasons
 TIMING_MODE_BG_ADAPTIVE = 0
 TIMING_MODE_INSTANT = 1
@@ -289,6 +298,9 @@ class Brain3DConfig:
     batch_window_ms: float = 2.0
     enable_endogenous_broca: bool = True      # Generates grounded inner-speech telemetry
     allow_broca_motor_bias: bool = False      # Plan A default: False (0.0 motor interference from inner speech)
+    enable_vygotsky_protocortex: bool = True  # v2.3.1 10-bit dual-loop (ally radio + 1.0s self-memo) epistemic cortex
+    enable_2v2_teammate_radio: bool = True    # Relay 1Hz @V1:r,s,i 10-bit packets between same-team allies
+    strat_hist_bottleneck_dropout: float = 0.25  # Continuous-history dropout during training so 10-bit self-memo carries credit
     policy_mode: str = "pure_neural"          # "scaffold" | "anneal" | "dagger" | "pure_neural"
     anneal_transitions: int = 1600
     scaffold_prior_scale: float = 1.0         # v2.3 Scaffold Annealing (`1.0` = full L2 compass prior, `0.0` = 100% autonomous neural ranking!)
@@ -525,6 +537,101 @@ def _clamp_utf8_bytes(text: str, max_bytes: int) -> bytes:
         return cut
     except UnicodeDecodeError:
         return cut[:-1]
+
+
+def format_protolang_glyph(r_id: int, s_id: int, i_id: int) -> str:
+    """Format a 10-bit `[R(8), S(16), I(8)]` packet as compact emergent symbol glyphs (`◈R·◆S·▶I`)."""
+    r_c = int(r_id) % PROTOLANG_R_DIM
+    s_c = int(s_id) % PROTOLANG_S_DIM
+    i_c = int(i_id) % PROTOLANG_I_DIM
+    return f"◈{r_c:X}·◆{s_c:X}·▶{i_c:X}"
+
+
+def pack_protolang_wire_tag(r_id: int, s_id: int, i_id: int, gloss: str = "", max_bytes: int = 31) -> str:
+    """
+    Pack a 10-bit `[r, s, i]` packet into an ASCII-prefixed `@V1:r,s,i` wire string
+    guaranteed to fit inside UBMC's 31-byte `inner_speech_tag` and UB3D's 127-byte `caregiver_utf8`.
+    """
+    r_c = int(r_id) % PROTOLANG_R_DIM
+    s_c = int(s_id) % PROTOLANG_S_DIM
+    i_c = int(i_id) % PROTOLANG_I_DIM
+    base = f"@V1:{r_c},{s_c},{i_c}"
+    if not gloss:
+        return base
+    full = f"{base}|{gloss}"
+    return _clamp_utf8_bytes(full, max_bytes).decode("utf-8", errors="ignore")
+
+
+def parse_protolang_wire_tag(text: str) -> Optional[Tuple[int, int, int]]:
+    """Parse `@V1:r,s,i` (with optional `|gloss` suffix) back into `(r_id, s_id, i_id)` or `None`."""
+    if not text:
+        return None
+    s = str(text).strip()
+    idx = s.find("@V1:")
+    if idx < 0:
+        return None
+    body = s[idx + 4 :].split("|", 1)[0].split(" ", 1)[0].strip()
+    parts = body.split(",")
+    if len(parts) < 3:
+        return None
+    try:
+        r_id = int(parts[0]) % PROTOLANG_R_DIM
+        s_id = int(parts[1]) % PROTOLANG_S_DIM
+        i_id = int(parts[2]) % PROTOLANG_I_DIM
+        return (r_id, s_id, i_id)
+    except ValueError:
+        return None
+
+
+def protolang_ids_to_onehot32(r_id: int, s_id: int, i_id: int) -> np.ndarray:
+    """Encode `(r_id, s_id, i_id)` into a `32D` float32 concatenated one-hot vector."""
+    vec = np.zeros(PROTOLANG_TOTAL_OH_DIM, dtype=np.float32)
+    vec[int(r_id) % PROTOLANG_R_DIM] = 1.0
+    vec[PROTOLANG_R_DIM + (int(s_id) % PROTOLANG_S_DIM)] = 1.0
+    vec[PROTOLANG_R_DIM + PROTOLANG_S_DIM + (int(i_id) % PROTOLANG_I_DIM)] = 1.0
+    return vec
+
+
+def derive_ego_referent_targets_np(
+    proprio: np.ndarray,
+    mem_compass: np.ndarray,
+    goal_mode: int,
+) -> Tuple[int, int, int]:
+    """
+    Strictly 1st-person POMDP referent summary `(threat_sector[0..3], tactical_state[0..3], intent_mode[0..4])`
+    computed purely from the speaker's own `proprio` & `mem_compass` (zero omniscient coordinate leak!).
+    """
+    prop = np.asarray(proprio, dtype=np.float32).ravel()
+    mc = np.asarray(mem_compass, dtype=np.float32).ravel()
+
+    # 1. Ego/Team-Canonical Threat Sector: 0=Clear, 1=LeftFlank, 2=Center, 3=RightFlank
+    thr_val = float(mc[MC_THR_VALID]) if mc.size > MC_THR_VALID else 0.0
+    thr_dx = float(mc[MC_THR_DX]) if mc.size > MC_THR_DX else 0.0
+    if thr_val < 0.35:
+        thr_sec = 0
+    elif thr_dx < -0.22:
+        thr_sec = 1
+    elif thr_dx > 0.22:
+        thr_sec = 3
+    else:
+        thr_sec = 2
+
+    # 2. Tactical Contest State: 0=Patrol, 1=ObjectiveSpotted, 2=HighHazardCombat, 3=CarryingCore
+    haz = float(prop[PROPRIO_IDX_HAZARD]) if prop.size > PROPRIO_IDX_HAZARD else 0.0
+    obj_val = float(mc[MC_OBJ_VALID]) if mc.size > MC_OBJ_VALID else 0.0
+    obj_dist = float(mc[MC_OBJ_DIST]) if mc.size > MC_OBJ_DIST else 1.0
+    if is_carrying_primary_objective(prop):
+        tac_st = 3
+    elif haz >= 0.36:
+        tac_st = 2
+    elif obj_val >= 0.45 and obj_dist <= 0.60:
+        tac_st = 1
+    else:
+        tac_st = 0
+
+    # 3. Macro Intent Mode: 0..4
+    int_m = int(np.clip(int(goal_mode), 0, 4))
+    return (thr_sec, tac_st, int_m)
 
 
 # ==============================================================================

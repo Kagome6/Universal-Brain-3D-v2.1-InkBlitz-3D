@@ -995,8 +995,210 @@ class BinocularRetinotopicDepthNet3D(nn.Module):
         return pred_patch, uncert, logvar
 
 
+class VygotskianProtolangCortex3D(nn.Module):
+    """
+    v2.3.1 Vygotskian Dual-Loop 10-bit Compositional Protolanguage Cortex (`Speaker + Dual-Wernicke`):
+      - Compresses continuous conscious/world state into 3 ungrounded discrete symbols `[R(8), S(16), I(8)]`
+        (`3 + 4 + 3 = 10 bits`, zero hardcoded human words) via straight-through unimix categoricals.
+      - Dual-Loop Wernicke Epistemic Receiver integrates:
+          * Route A (Social Narrowband Radio): Teammate's latest `1 Hz` `10-bit` packet `u_ally`
+          * Route B (Temporal Self-Dialogue) : Agent's own `10-bit` commitment memo `u_memo(t - 1.0s)`
+      - Injects epistemic comprehension strictly into `StrategicTransformer` (`delta_strat64`) and
+        `ActiveGWTWorkspace` (`delta_gwt128`) via `apply_zero_gate` (`0.000000` step-0 perturbation on
+        `v2.3.0` checkpoints, preserving Plan-A direct-Q motor isolation against Pathology P5!).
+    """
+
+    def __init__(self):
+        super().__init__()
+        # 3 Anatomically Distinct Cortical Speaker Streams (prevents 3-slot lockstep redundancy while keeping 0 human labels!):
+        #   - Stream R (8 symbols, 3b) : Dorsal-Topological Stream `[slot_ctx64, mem_compass]`
+        #   - Stream S (16 symbols, 4b): World-Model & Somatic Salience Stream `[rssm_h, proprio, proto_emb]`
+        #   - Stream I (8 symbols, 3b) : Prefrontal-Workspace Executive Stream `[gwt_w, proprio, mem_compass]`
+        self.stream_r = nn.Sequential(
+            nn.Linear(MULTIMODAL_EMBED_DIM + MEM_COMPASS_DIM, 48),
+            nn.LayerNorm(48),
+            nn.GELU(),
+        )
+        self.stream_s = nn.Sequential(
+            nn.Linear(RSSM_DETER_DIM + PROPRIO_DIM + PROTO_EMBED_DIM, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+        )
+        self.stream_i = nn.Sequential(
+            nn.Linear(GWT_DIM + PROPRIO_DIM + MEM_COMPASS_DIM, 48),
+            nn.LayerNorm(48),
+            nn.GELU(),
+        )
+        self.head_r = nn.Linear(48, PROTOLANG_R_DIM)
+        self.head_s = nn.Linear(64, PROTOLANG_S_DIM)
+        self.head_i = nn.Linear(48, PROTOLANG_I_DIM)
+
+        # Dual-Loop Wernicke Epistemic Encoders (Route A: Ally Radio + Age; Route B: 1.0s Self-Memo)
+        self.ally_enc = nn.Sequential(
+            nn.Linear(PROTOLANG_TOTAL_OH_DIM + 1, 48),
+            nn.LayerNorm(48),
+            nn.GELU(),
+            nn.Linear(48, PROTOLANG_CTX_DIM),
+            nn.GELU(),
+        )
+        self.memo_enc = nn.Sequential(
+            nn.Linear(PROTOLANG_TOTAL_OH_DIM, 48),
+            nn.LayerNorm(48),
+            nn.GELU(),
+            nn.Linear(48, PROTOLANG_CTX_DIM),
+            nn.GELU(),
+        )
+        self.wernicke_fuse = nn.Sequential(
+            nn.Linear(PROTOLANG_CTX_DIM * 2 + PROPRIO_DIM + MEM_COMPASS_DIM, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Linear(64, PROTOLANG_CTX_DIM),
+            nn.Tanh(),
+        )
+
+        # Zero-Gated Epistemic Workspace Projections (Plan-A Safe: enters StrategicTF & GWT, NEVER raw Q!)
+        self.strat_comm_proj = nn.Linear(PROTOLANG_CTX_DIM, 64)
+        nn.init.orthogonal_(self.strat_comm_proj.weight, gain=0.30)
+        nn.init.zeros_(self.strat_comm_proj.bias)
+        self.strat_comm_gate = nn.Parameter(torch.zeros(1))
+
+        self.gwt_comm_proj = nn.Linear(PROTOLANG_CTX_DIM, GWT_DIM)
+        nn.init.orthogonal_(self.gwt_comm_proj.weight, gain=0.30)
+        nn.init.zeros_(self.gwt_comm_proj.bias)
+        self.gwt_comm_gate = nn.Parameter(torch.zeros(1))
+
+        # Self-Supervised Lewis Signaling & Positive-Listening Predictive Heads (training-only)
+        self.lewis_dec = nn.Sequential(
+            nn.Linear(PROTOLANG_TOTAL_OH_DIM, 48),
+            nn.LayerNorm(48),
+            nn.GELU(),
+        )
+        self.lewis_thr_head = nn.Linear(48, 4)
+        self.lewis_tac_head = nn.Linear(48, 4)
+        self.lewis_int_head = nn.Linear(48, 5)
+
+        self.ally_ref_dec = nn.Sequential(
+            nn.Linear(PROTOLANG_CTX_DIM + PROPRIO_DIM + MEM_COMPASS_DIM, 48),
+            nn.GELU(),
+        )
+        self.ally_thr_head = nn.Linear(48, 4)
+        self.ally_tac_head = nn.Linear(48, 4)
+        self.ally_int_head = nn.Linear(48, 5)
+
+        self.memo_mode_head = nn.Linear(PROTOLANG_CTX_DIM + PROPRIO_DIM + MEM_COMPASS_DIM, 5)
+
+    def _quantize_slot(self, logits: torch.Tensor, num_classes: int, tau: float = 0.65, unimix: float = 0.02):
+        probs = (1.0 - unimix) * F.softmax(logits / tau, dim=-1) + (unimix / float(num_classes))
+        if self.training and torch.is_grad_enabled():
+            oh = F.gumbel_softmax(torch.log(probs + 1e-7), tau=0.80, hard=True, dim=-1)
+            idx = torch.argmax(oh, dim=-1)
+        else:
+            idx = torch.argmax(probs, dim=-1)
+            oh = F.one_hot(idx, num_classes=num_classes).to(dtype=probs.dtype)
+        return oh, idx, probs
+
+    def emit_packet(self, gwt_w, slot_ctx64, rssm_h, mem_compass, proprio, proto_emb):
+        hr = self.stream_r(torch.cat([slot_ctx64, mem_compass], dim=-1))
+        hs = self.stream_s(torch.cat([rssm_h, proprio, proto_emb], dim=-1))
+        hi = self.stream_i(torch.cat([gwt_w, proprio, mem_compass], dim=-1))
+        oh_r, idx_r, pr_r = self._quantize_slot(self.head_r(hr), PROTOLANG_R_DIM)
+        oh_s, idx_s, pr_s = self._quantize_slot(self.head_s(hs), PROTOLANG_S_DIM)
+        oh_i, idx_i, pr_i = self._quantize_slot(self.head_i(hi), PROTOLANG_I_DIM)
+        pkt_oh32 = torch.cat([oh_r, oh_s, oh_i], dim=-1)
+        pkt_ids = torch.stack([idx_r, idx_s, idx_i], dim=-1)
+        return pkt_oh32, pkt_ids, (pr_r, pr_s, pr_i)
+
+    def receive_dual_packets(
+        self,
+        ally_oh32: torch.Tensor,
+        valid_ally: torch.Tensor,
+        age_ally: torch.Tensor,
+        memo_oh32: torch.Tensor,
+        valid_memo: torch.Tensor,
+        proprio: torch.Tensor,
+        mem_compass: torch.Tensor,
+    ):
+        ego_q = torch.cat([proprio, mem_compass], dim=-1)
+        ally_emb = self.ally_enc(torch.cat([ally_oh32, age_ally], dim=-1)) * valid_ally
+        memo_emb = self.memo_enc(memo_oh32) * valid_memo
+        any_valid = torch.clamp(valid_ally + valid_memo, 0.0, 1.0)
+        comm_ctx32 = self.wernicke_fuse(torch.cat([ally_emb, memo_emb, ego_q], dim=-1)) * any_valid
+        delta_strat64 = apply_zero_gate(self.strat_comm_gate, self.strat_comm_proj(comm_ctx32), self.training, 0.24) * any_valid
+        delta_gwt128 = apply_zero_gate(self.gwt_comm_gate, self.gwt_comm_proj(comm_ctx32), self.training, 0.24) * any_valid
+        return comm_ctx32, delta_strat64, delta_gwt128, ally_emb, memo_emb
+
+    def referential_and_mi_loss(
+        self,
+        spk_pkt_oh32: torch.Tensor,
+        spk_probs_tuple: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+        ego_ref_targets: torch.Tensor,
+        ego_q: torch.Tensor,
+        ally_emb: Optional[torch.Tensor] = None,
+        valid_ally: Optional[torch.Tensor] = None,
+        ally_ref_targets: Optional[torch.Tensor] = None,
+        memo_emb: Optional[torch.Tensor] = None,
+        valid_memo: Optional[torch.Tensor] = None,
+        sustained_mode_targets: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        # 1. Symmetric Lewis Signaling Auto-Grounding across the 10-bit discrete bottleneck (no slot semantics forced!)
+        lh = self.lewis_dec(spk_pkt_oh32)
+        t_thr = ego_ref_targets[:, 0].clamp(0, 3)
+        t_tac = ego_ref_targets[:, 1].clamp(0, 3)
+        t_int = ego_ref_targets[:, 2].clamp(0, 4)
+        loss_lewis = (
+            F.cross_entropy(self.lewis_thr_head(lh), t_thr)
+            + F.cross_entropy(self.lewis_tac_head(lh), t_tac)
+            + F.cross_entropy(self.lewis_int_head(lh), t_int)
+        ) / 3.0
+
+        # 2. Marginal Entropy Maximization (anti-collapse) + Conditional Crispness + Pairwise Slot Decorrelation
+        loss_mi_reg = spk_pkt_oh32.new_tensor(0.0)
+        bsz = int(spk_pkt_oh32.shape[0])
+        for p_k, k_dim in zip(spk_probs_tuple, (PROTOLANG_R_DIM, PROTOLANG_S_DIM, PROTOLANG_I_DIM)):
+            inv_log_k = 1.0 / math.log(float(k_dim))
+            ent_cond = -(p_k * torch.log(p_k + 1e-7)).sum(dim=-1).mean() * inv_log_k
+            if bsz >= 4:
+                p_bar = p_k.mean(dim=0)
+                ent_marg = -(p_bar * torch.log(p_bar + 1e-7)).sum() * inv_log_k
+                loss_mi_reg = loss_mi_reg + (0.52 * F.relu(0.78 - ent_marg) + 0.05 * ent_cond) / 3.0
+            else:
+                loss_mi_reg = loss_mi_reg + (0.05 * ent_cond) / 3.0
+
+        if bsz >= 4:
+            pr_r, pr_s, pr_i = spk_probs_tuple
+            tc_pen = spk_pkt_oh32.new_tensor(0.0)
+            for pa, pb in ((pr_r, pr_s), (pr_r, pr_i), (pr_s, pr_i)):
+                j_ab = (pa.transpose(0, 1) @ pb) / float(bsz)
+                m_ab = pa.mean(dim=0).unsqueeze(1) @ pb.mean(dim=0).unsqueeze(0)
+                tc_pen = tc_pen + ((j_ab - m_ab) ** 2).sum()
+            loss_mi_reg = loss_mi_reg + 0.45 * tc_pen
+
+        # 3. Cross-Teammate Positive-Listening Epistemic Loss (Route A, when real 2v2 ally packet present)
+        loss_ally = spk_pkt_oh32.new_tensor(0.0)
+        if ally_emb is not None and valid_ally is not None and ally_ref_targets is not None:
+            a_mask = valid_ally.squeeze(-1) > 0.5
+            if bool(a_mask.any().item()):
+                ah = self.ally_ref_dec(torch.cat([ally_emb[a_mask], ego_q[a_mask]], dim=-1))
+                at = ally_ref_targets[a_mask]
+                loss_ally = (
+                    F.cross_entropy(self.ally_thr_head(ah), at[:, 0].clamp(0, 3))
+                    + F.cross_entropy(self.ally_tac_head(ah), at[:, 1].clamp(0, 3))
+                    + F.cross_entropy(self.ally_int_head(ah), at[:, 2].clamp(0, 4))
+                ) / 3.0
+
+        # 4. Temporal Self-Memo Commitment Consistency (Route B, when 1.0s delayed self-memo present)
+        loss_memo = spk_pkt_oh32.new_tensor(0.0)
+        if memo_emb is not None and valid_memo is not None and sustained_mode_targets is not None:
+            m_mask = valid_memo.squeeze(-1) > 0.5
+            if bool(m_mask.any().item()):
+                m_logits = self.memo_mode_head(torch.cat([memo_emb[m_mask], ego_q[m_mask]], dim=-1))
+                loss_memo = F.cross_entropy(m_logits, sustained_mode_targets[m_mask].clamp(0, 4))
+
+        return 0.28 * loss_lewis + 0.22 * loss_mi_reg + 0.30 * loss_ally + 0.16 * loss_memo
+
+
 def build_pytorch_brain_models(torch_mod: Any = None, cfg: Optional[Brain3DConfig] = None) -> Dict[str, nn.Module]:
-    """Instantiate the complete 13-model Whole-Brain PyTorch suite in deterministic seed order."""
+    """Instantiate the complete Whole-Brain PyTorch suite (`13` core models + `v2.3.1` `protolang` at tail for exact RNG parity)."""
     _ = (torch_mod, cfg)
     return {
         "foveal_enc": TensorTrainFovealEncoder3D(),
@@ -1012,4 +1214,5 @@ def build_pytorch_brain_models(torch_mod: Any = None, cfg: Optional[Brain3DConfi
         "strat_tf": StrategicTransformer3D(),
         "broca": EndogenousBrocaWernickeCortex(),
         "depth_net": BinocularRetinotopicDepthNet3D(),
+        "protolang": VygotskianProtolangCortex3D(),
     }
