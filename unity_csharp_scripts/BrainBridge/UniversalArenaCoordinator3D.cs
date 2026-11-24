@@ -11,6 +11,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using UnityEngine;
 
@@ -37,7 +39,7 @@ namespace UniversalBrain3D
         [Header("Execution & Parallel Arena Mode")]
         public BrainSessionRunMode sessionMode = BrainSessionRunMode.SinglePlaySpectate;
         public bool autoLaunchOnStart = false;
-        public int baseTcpPort = 50055;
+        public int baseTcpPort = 38055;
         [Range(1, 8)] public int parallelArenaCount = 4;
         [Range(1f, 8f)] public float trainingTimeScale = 4.0f;
         public float arenaSpacingMeters = 100.0f;
@@ -77,6 +79,80 @@ namespace UniversalBrain3D
             if (QualitySettings.vSyncCount == 0 && Application.targetFrameRate <= 0)
                 Application.targetFrameRate = 60;
             EnsureResolvedPaths();
+            EnsureBindablePortBlock();
+        }
+
+        private static bool CanBindLoopbackPort(int port)
+        {
+            if (port < 1024 || port > 65530)
+                return false;
+            TcpListener probe = null;
+            try
+            {
+                probe = new TcpListener(IPAddress.Loopback, port);
+                probe.Start();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                try { probe?.Stop(); } catch { }
+            }
+        }
+
+        private static bool IsPortBlockBindable(int candidateBase)
+        {
+            // Verify Arena 0..7 A/B ports (+0..+15) and UX telemetry port (+100) are all free of OS/Hyper-V WinError 10013 locks!
+            if (!CanBindLoopbackPort(candidateBase + 100))
+                return false;
+            for (int off = 0; off < 16; off++)
+            {
+                if (!CanBindLoopbackPort(candidateBase + off))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Ensures `baseTcpPort`..`baseTcpPort+15` and `uxPort = baseTcpPort+100` are outside Windows Hyper-V/WinNAT
+        /// excluded dynamic port ranges (`WSAEACCES 10013`) and not held by another process.
+        /// </summary>
+        public int EnsureBindablePortBlock()
+        {
+            if (IsBackendRunning)
+                return baseTcpPort;
+
+            int oldBase = baseTcpPort;
+            // Prefer user-registered ports (< 49152) first so Windows 49152-65535 dynamic ephemeral exclusions are avoided.
+            int[] candidates =
+            {
+                (oldBase >= 1024 && oldBase < 49000) ? oldBase : 38055,
+                38055, 38355, 38655, 28055, 28355, 28655, 42055, 42355, oldBase
+            };
+
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                int cand = candidates[i];
+                if (IsPortBlockBindable(cand))
+                {
+                    if (cand != oldBase)
+                    {
+                        int delta = cand - oldBase;
+                        baseTcpPort = cand;
+                        for (int b = 0; b < _activeBridges.Count; b++)
+                        {
+                            if (_activeBridges[b] != null)
+                                _activeBridges[b].port += delta;
+                        }
+                        UnityEngine.Debug.Log($"[UniversalArenaCoordinator3D] Relocated baseTcpPort {oldBase} -> {cand} (UX={cand + 100}) to avoid OS/Hyper-V reserved port.");
+                    }
+                    return baseTcpPort;
+                }
+            }
+            return baseTcpPort;
         }
 
         public bool IsTrainingSession =>
@@ -233,6 +309,7 @@ namespace UniversalBrain3D
             StopPythonBackend();
             SafeShutdownPhase = "IDLE";
             EnsureResolvedPaths();
+            EnsureBindablePortBlock();
             while (PbtStatQueue.TryDequeue(out _)) { }
             LastExitCode = 0;
             latestBackendLog = "";

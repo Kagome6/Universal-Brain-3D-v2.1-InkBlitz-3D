@@ -41,7 +41,7 @@ namespace UniversalBrain3D
 
         [Header("Network & Arena Settings")]
         public string host = "127.0.0.1";
-        public int port = 50055;
+        public int port = 38055;
         public int arenaIndex = 0;
         public int stageId = 1; // >0 keys Python's Hippocampal Structural Schema Bank (auto-resets when stageId changes!)
         public int teamId = 1; // +1 = Team A (South->North), -1 = Team B (North->South)
