@@ -123,7 +123,7 @@ namespace InkBlitz3D.Editor
                 arenaIndex: 0,
                 teamId: 1,
                 entityId: 1,
-                port: 50055,
+                port: 38055,
                 localPos: settings.teamASpawnLocal,
                 turfGrid: turfGrid,
                 bodyMat: teamABodyMat,
@@ -139,7 +139,7 @@ namespace InkBlitz3D.Editor
                 arenaIndex: 0,
                 teamId: -1,
                 entityId: 2,
-                port: 50056,
+                port: 38056,
                 localPos: settings.teamBSpawnLocal,
                 turfGrid: turfGrid,
                 bodyMat: teamBBodyMat,
@@ -187,7 +187,7 @@ namespace InkBlitz3D.Editor
             coordinator.autoLaunchOnStart = true;
             coordinator.singlePlayPolicyMode = "dagger";
             coordinator.taskProfile = "turf_objective";
-            coordinator.baseTcpPort = 50055;
+            coordinator.baseTcpPort = 38055;
             coordinator.arenaSpacingMeters = 100.0f;
             coordinator.arenaPrefab = prefabAsset;
             coordinator.RegisterBridge(teamAAgent.brainBridge);
