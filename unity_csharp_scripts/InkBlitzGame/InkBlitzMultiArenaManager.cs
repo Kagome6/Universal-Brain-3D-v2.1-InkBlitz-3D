@@ -134,6 +134,8 @@ namespace InkBlitz3D
             if (coordinator == null || primaryArena == null)
                 return;
 
+            coordinator.EnsureBindablePortBlock();
+
             for (int i = 0; i < arenas.Count; i++)
             {
                 if (arenas[i] != null && arenas[i] != primaryArena)

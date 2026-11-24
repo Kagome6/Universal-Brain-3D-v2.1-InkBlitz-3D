@@ -170,7 +170,7 @@ namespace InkBlitz3D
         private Thread _rxThread;
         private volatile bool _rxRun = false;
         private volatile bool _wantUxStream = false;
-        private volatile int _targetUxPort = 50155;
+        private volatile int _targetUxPort = 38155;
         private volatile bool _uxConnected = false;
 
         // --- Cortical Sheet & Info-Geometry State (Cyber-Dark `AIVisualizer` Layout) ---
