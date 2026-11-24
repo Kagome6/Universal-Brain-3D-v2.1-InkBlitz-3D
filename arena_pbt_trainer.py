@@ -151,6 +151,7 @@ PBT_ARCHETYPES: List[Dict[str, Any]] = [
         "broca_prior_gain": 1.00,
         "policy_temp": 0.30,
         "survival_veto_threshold": 0.38,
+        "frac_memory_alpha": 0.68,
     },
     {
         "archetype": "TurfController",
@@ -160,6 +161,7 @@ PBT_ARCHETYPES: List[Dict[str, Any]] = [
         "broca_prior_gain": 1.00,
         "policy_temp": 0.36,
         "survival_veto_threshold": 0.42,
+        "frac_memory_alpha": 0.48,
     },
     {
         "archetype": "StealthInterceptor",
@@ -169,6 +171,7 @@ PBT_ARCHETYPES: List[Dict[str, Any]] = [
         "broca_prior_gain": 1.00,
         "policy_temp": 0.28,
         "survival_veto_threshold": 0.46,
+        "frac_memory_alpha": 0.36,
     },
     {
         "archetype": "BalancedTactician",
@@ -178,6 +181,7 @@ PBT_ARCHETYPES: List[Dict[str, Any]] = [
         "broca_prior_gain": 1.00,
         "policy_temp": 0.33,
         "survival_veto_threshold": 0.41,
+        "frac_memory_alpha": 0.52,
     },
 ]
 
@@ -341,6 +345,7 @@ def _crossover_and_mutate_slot_genes(
         ("stn_stealth_gain", 0.45, 2.30),
         ("policy_temp", 0.18, 0.70),
         ("survival_veto_threshold", 0.28, 0.58),
+        ("frac_memory_alpha", 0.24, 0.84),
     ):
         v_c = float(champ_genes.get(gk, home_arch[gk]))
         v_l = float(loser_genes.get(gk, home_arch[gk]))
@@ -1164,7 +1169,9 @@ class LocalCpuBrainAgentDriver:
         self.hippo.set_learning_context(self.trainable)
         self.cereb = Cerebellar3DKinematicPredictorV2(cfg)
         self.bg = BasalGanglia3DTimingEngineV2(cfg)
-        self.homeostasis = ActionStagnationHomeostasis3D(cfg.world_min, cfg.world_max)
+        self.homeostasis = ActionStagnationHomeostasis3D(
+            cfg.world_min, cfg.world_max, frac_alpha=float(getattr(cfg, "frac_memory_alpha", 0.52))
+        )
         self.strategy_ctrl = create_runtime_strategy_controller(cfg, slot_id=self.worker_id)
         self.latest_strategy_tag: str = ""
 
@@ -1290,7 +1297,7 @@ class LocalCpuBrainAgentDriver:
             gwt_ignition=self.last_ignition,
         )
         lead_xyz, opp_prob, kin_risk, sc_spd = self.cereb.predict_lead_and_crossfire(
-            sp_out["believed_self_pos"], sp_out["believed_entities"], sp_out["believed_count"]
+            sp_out["believed_self_pos"], sp_out["believed_entities"], sp_out["believed_count"], dt=dt
         )
         self.last_lead_xyz = lead_xyz.copy()
 
@@ -1516,6 +1523,7 @@ class LocalCpuBrainAgentDriver:
                     timeout=0.5,
                 )
 
+            self.homeostasis.set_frac_alpha(float(getattr(self.cfg, "frac_memory_alpha", 0.52)))
             r_int = self.homeostasis.update_and_compute_intrinsic(
                 episode_id=int(obs["episode_id"]),
                 pos_xz=sp_out["believed_self_pos"][[0, 2]],
@@ -2086,7 +2094,8 @@ def run_arena_slot_worker_process(
                 srv_ux.bind((cfg.unity_host, int(ux_telemetry_port)))
                 srv_ux.listen(1)
                 srv_ux.setblocking(False)
-            except OSError:
+            except OSError as exc:
+                print(f"[ArenaSlotWorker][WARN] Failed to bind UX telemetry port {ux_telemetry_port}: {exc}", file=sys.stderr, flush=True)
                 srv_ux = None
 
     solo_arena = StandaloneTactical3DArena(cfg) if (env_backend != "unity_tcp" and matchmaking != "self_play") else None
@@ -2623,7 +2632,7 @@ def run_arena_pbt_coordinator(
     pop_size: int = 4,
     generations: int = 4,
     episodes_per_gen: int = 2,
-    base_port: int = 50055,
+    base_port: int = 38055,
     checkpoint_dir: str = "",
     init_weights_path: str = "",
     parent_pid: int = 0,
@@ -3102,7 +3111,8 @@ def run_2v2_spectate_worker_process(
                 srv_ux.bind((cfg.unity_host, int(ux_telemetry_port)))
                 srv_ux.listen(1)
                 srv_ux.setblocking(False)
-            except OSError:
+            except OSError as exc:
+                print(f"[ArenaSlotWorker][WARN] Failed to bind UX telemetry port {ux_telemetry_port}: {exc}", file=sys.stderr, flush=True)
                 srv_ux = None
 
     drivers: List[LocalCpuBrainAgentDriver] = []
@@ -3468,7 +3478,7 @@ def run_arena_spectate_coordinator(
     base_cfg: Brain3DConfig,
     *,
     env_backend: str = "unity_tcp",
-    base_port: int = 50055,
+    base_port: int = 38055,
     ux_port: int = 0,
     load_weights: str = "",
     opp_weights: str = "",
@@ -3765,7 +3775,7 @@ def main() -> int:
     )
     ap.add_argument("--time-scale", type=float, default=4.0)
     ap.add_argument("--host", type=str, default="127.0.0.1")
-    ap.add_argument("--base-port", type=int, default=50055)
+    ap.add_argument("--base-port", type=int, default=38055)
     ap.add_argument("--ux-port", type=int, default=0)
     ap.add_argument("--sleep-consolidation", type=int, default=1)
     ap.add_argument("--sleep-epochs", type=int, default=6)

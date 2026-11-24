@@ -335,7 +335,7 @@ class Brain3DConfig:
     export_field_maps_to_shm: bool = False    # Optional 11.5KB 4-layer map SHM bus export (off by default to save 72% 60Hz SHM/CRC bandwidth)
     unity_socket_timeout_sec: float = 2.5     # Resilient TCP timeout preventing false disconnects during sleep or Unity frame spikes
     unity_host: str = "127.0.0.1"
-    unity_port: int = 50055
+    unity_port: int = 38055
     ux_telemetry_port: int = 0
     work_dir: str = "."
     seed: int = 2026
