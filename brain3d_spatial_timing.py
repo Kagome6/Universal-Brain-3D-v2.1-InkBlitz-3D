@@ -157,14 +157,14 @@ class MultiLayerCognitiveFieldMap3D:
         self.set_strategic_lane_weights(w_tup[0], w_tup[1], w_tup[2], clear_commitment=changed)
 
     def register_strategic_hazard_scar(self, dead_x: float, dead_z: float) -> None:
-        """Deposit a decaying mid-match danger memory around a splat site so respawn routes flank around it."""
+        """Deposit a mild decaying mid-match danger memory around a splat site without forcing wide stadium-rim detours."""
         iz, ix = self.world_to_cell(float(dead_x), float(dead_z))
         for dz in range(-2, 3):
             for dx in range(-2, 3):
                 jz, jx = iz + dz, ix + dx
                 if 0 <= jz < self.grid_n and 0 <= jx < self.grid_n:
                     d2 = float(dz * dz + dx * dx)
-                    self.strategic_hazard_scar[jz, jx] = min(1.8, float(self.strategic_hazard_scar[jz, jx]) + 0.95 / (1.0 + 0.45 * d2))
+                    self.strategic_hazard_scar[jz, jx] = min(0.52, float(self.strategic_hazard_scar[jz, jx]) + 0.30 / (1.0 + 0.55 * d2))
         self._route_cache.clear()
 
     def export_structural_schema(self) -> Dict[str, Any]:
@@ -763,24 +763,49 @@ class MultiLayerCognitiveFieldMap3D:
         max_diag = float(math.hypot(float(self.span[0]), float(self.span[2])))
         u_dir = (direct_dir_xz / max(1e-4, float(np.linalg.norm(direct_dir_xz)))).astype(np.float32)
 
-        if d_goal <= 4.0:
+        if d_goal <= 3.6:
             side_sign = float(self._committed_flank_side) if self._committed_flank_side != 0 else -1.0
             perp = np.array([-u_dir[1] * side_sign, u_dir[0] * side_sign], dtype=np.float32)
-            conv = 0.84 * (to_goal / max(1e-4, d_goal)) + 0.16 * perp
+            conv = 0.86 * (to_goal / max(1e-4, d_goal)) + 0.14 * perp
             cn = float(np.linalg.norm(conv))
             return (conv / max(1e-4, cn)).astype(np.float32), float(np.clip(d_goal / max_diag, 0.0, 1.0)), True
 
-        dz_g = float(goal_xz[1] - start_xz[1])
-        z_adv = 0.16 * float(self.span[2]) * (1.0 if dz_g >= 0.0 else -1.0)
-        wp_z = float(np.clip(0.55 * float(start_xz[1]) + 0.45 * float(goal_xz[1]) + z_adv, float(self.wmin[2]) + 2.2, float(self.wmax[2]) - 2.2))
-        wx_left = float(self.wmin[0]) + 0.16 * float(self.span[0])
-        wx_right = float(self.wmax[0]) - 0.16 * float(self.span[0])
+        # Proportional target/obstacle-relative flank offset (2.8m..4.5m around ego->goal line, NEVER hardcoded stadium rim ±8.16m!)
+        u_goal = (to_goal / max(1e-4, d_goal)).astype(np.float32)
+        perp_g = np.array([-u_goal[1], u_goal[0]], dtype=np.float32)  # Left of ego->goal axis
+        lat_off = float(np.clip(0.34 * d_goal, 2.8, 4.5))
 
-        def _snap_open_wp(wx: float, wz: float) -> Tuple[np.ndarray, float, float]:
-            iz0, ix0 = self.world_to_cell(wx, wz)
+        if threat_xz is not None:
+            rel_thr = threat_xz - start_xz
+            proj_t = float(np.dot(rel_thr, u_goal))
+            if 0.8 <= proj_t <= d_goal + 1.5 and abs(float(np.dot(rel_thr, perp_g))) <= 4.2:
+                anchor_xz = np.asarray(threat_xz, dtype=np.float32)
+            else:
+                anchor_xz = 0.52 * start_xz + 0.48 * goal_xz
+        else:
+            anchor_xz = 0.52 * start_xz + 0.48 * goal_xz
+
+        raw_l = anchor_xz + perp_g * lat_off
+        raw_r = anchor_xz - perp_g * lat_off
+        margin_x = 1.35
+        margin_z = 1.80
+
+        def _snap_open_wp(wx: float, wz: float, push_perp: np.ndarray) -> Tuple[np.ndarray, float, float]:
+            cx_w = float(np.clip(wx, float(self.wmin[0]) + margin_x, float(self.wmax[0]) - margin_x))
+            cz_w = float(np.clip(wz, float(self.wmin[2]) + margin_z, float(self.wmax[2]) - margin_z))
+            iz0, ix0 = self.world_to_cell(cx_w, cz_w)
             best_iz, best_ix = iz0, ix0
             if int(self.occ_state[iz0, ix0]) == self.WALL:
+                # First try stepping further laterally past wide cover/baffle edges before radial fallback
                 found = False
+                for step_m in (1.0, 2.0, 3.0):
+                    tx = float(np.clip(cx_w + float(push_perp[0]) * step_m, float(self.wmin[0]) + margin_x, float(self.wmax[0]) - margin_x))
+                    tz = float(np.clip(cz_w + float(push_perp[1]) * step_m, float(self.wmin[2]) + margin_z, float(self.wmax[2]) - margin_z))
+                    jz, jx = self.world_to_cell(tx, tz)
+                    if int(self.occ_state[jz, jx]) != self.WALL:
+                        best_iz, best_ix = jz, jx
+                        found = True
+                        break
                 for r_c in range(1, 5):
                     if found:
                         break
@@ -801,8 +826,8 @@ class MultiLayerCognitiveFieldMap3D:
             loc_scar = float(np.mean(self.strategic_hazard_scar[z0:z1, x0:x1]))
             return self.cell_to_world_xz(best_iz, best_ix), loc_surf, loc_scar
 
-        wp_l, surf_l, scar_l = _snap_open_wp(wx_left, wp_z)
-        wp_r, surf_r, scar_r = _snap_open_wp(wx_right, wp_z)
+        wp_l, surf_l, scar_l = _snap_open_wp(float(raw_l[0]), float(raw_l[1]), perp_g)
+        wp_r, surf_r, scar_r = _snap_open_wp(float(raw_r[0]), float(raw_r[1]), -perp_g)
         wl_strat, _, wr_strat = self.strategic_lane_weights
 
         def _score_wing(wp: np.ndarray, surf_v: float, scar_v: float, strat_w: float, side_id: int) -> float:
@@ -813,15 +838,15 @@ class MultiLayerCognitiveFieldMap3D:
             thr_sep = 0.0
             if threat_xz is not None:
                 d_thr_wp = float(np.linalg.norm(wp - threat_xz))
-                thr_sep = min(1.8, d_thr_wp / max(4.0, 0.35 * float(self.span[0])))
-            hyst = 0.32 if (self._committed_flank_side == side_id and self._committed_flank_ticks < 36) else 0.0
+                thr_sep = min(1.6, d_thr_wp / max(3.5, 0.28 * float(self.span[0])))
+            hyst = 0.12 if (self._committed_flank_side == side_id and self._committed_flank_ticks < 10) else 0.0
             return (
-                1.10 * float(strat_w)
+                0.85 * float(strat_w)
                 + 0.65 * surf_v
                 + 0.85 * thr_sep
-                + 0.35 * distinct
-                - 1.25 * scar_v
-                - 0.03 * dw
+                + 0.28 * distinct
+                - 0.85 * scar_v
+                - 0.06 * dw
                 + hyst
             )
 
@@ -835,7 +860,7 @@ class MultiLayerCognitiveFieldMap3D:
             self._committed_flank_ticks = 1
 
         wp_best = wp_l if chosen_side < 0 else wp_r
-        already_on_wing = abs(float(start_xz[0] - wp_best[0])) <= 2.8 and float(np.linalg.norm(wp_best - start_xz)) <= 4.2
+        already_on_wing = float(np.linalg.norm(wp_best - start_xz)) <= 3.0
         nav_tgt = goal_xz if already_on_wing else wp_best
         step_dir, norm_d, _ = self.find_tactical_next_step(start_xz, nav_tgt, threat_xz=threat_xz)
         return step_dir, norm_d, already_on_wing

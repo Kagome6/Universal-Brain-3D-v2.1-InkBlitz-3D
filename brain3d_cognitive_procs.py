@@ -122,6 +122,10 @@ class ActionStagnationHomeostasis3D:
         c_i = int(np.clip(chosen_idx, 0, NUM_CANDIDATES - 1))
         if step_extrinsic_reward > 0.015:
             self.habituation_trace[c_i] *= 0.25
+        elif ema_disp >= 1.35 and move_delta >= 0.18:
+            # Purposeful spatial traversal (e.g. advancing across already-painted turf) is NOT lock-in:
+            # do not punish active forward travel with artificial action-switching depression!
+            self.habituation_trace[c_i] *= 0.85
         elif step_extrinsic_reward <= 0.005 and not legit_regen:
             self.habituation_trace[c_i] = min(1.0, float(self.habituation_trace[c_i]) + 0.16)
 
@@ -915,14 +919,20 @@ def run_conscious_gwt_3d_process(
                     inner_speech=mono_s,
                     field_map=None,
                 )
-                strat_cur_m = float(st_out["curiosity_mult"])
-                strat_obj_m = float(st_out["objective_mult"])
-                strat_caut_d = float(st_out["caution_delta"])
-                strat_lane_code = int(st_out["lane_code"]) & 0xFF
+                is_autonomous_neural = (
+                    str(getattr(cfg, "policy_mode", "pure_neural")) == "pure_neural"
+                    and float(getattr(cfg, "scaffold_prior_scale", 1.0)) <= 0.05
+                    and not bool(st_out.get("human_override", False))
+                )
                 strat_regime_id = int(st_out["regime_id"]) & 0xFF
-                # Peace-time soft anchor ONLY when StrategicTransformer output is neutral/undecided & zero combat crisis!
-                if st_out["peace_goal_mode_override"] is not None and eff_topdown_mode == GOAL_MODE_BALANCED_EXPLORE:
-                    eff_topdown_mode = int(st_out["peace_goal_mode_override"])
+                if not is_autonomous_neural:
+                    strat_cur_m = float(st_out["curiosity_mult"])
+                    strat_obj_m = float(st_out["objective_mult"])
+                    strat_caut_d = float(st_out["caution_delta"])
+                    strat_lane_code = int(st_out["lane_code"]) & 0xFF
+                    # Peace-time soft anchor ONLY in scaffolded/coached mode, never hijacking autonomous neural mode!
+                    if st_out["peace_goal_mode_override"] is not None and eff_topdown_mode == GOAL_MODE_BALANCED_EXPLORE:
+                        eff_topdown_mode = int(st_out["peace_goal_mode_override"])
 
             mip_info: Dict[str, Any] = {}
             q_star, pi, phi_bits, fr_step, ent_norm, veto_act = compute_gene_modulated_mip_and_fr(

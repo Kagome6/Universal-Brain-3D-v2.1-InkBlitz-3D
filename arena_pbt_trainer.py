@@ -1391,6 +1391,10 @@ class LocalCpuBrainAgentDriver:
         strat_obj_m = 1.0
         strat_caut_d = 0.0
         strat_peace_mode: Optional[int] = None
+        is_autonomous_neural = (
+            str(getattr(self.cfg, "policy_mode", "pure_neural")) == "pure_neural"
+            and float(getattr(self.cfg, "scaffold_prior_scale", 1.0)) <= 0.05
+        )
         if self.strategy_ctrl is not None and (gwt_out is not None or ep_done or respawn_ev):
             ign_v = float(gwt_out["ignition"]) if gwt_out is not None else 0.0
             synth_sp = ""
@@ -1414,12 +1418,19 @@ class LocalCpuBrainAgentDriver:
                 ignition=ign_v,
                 stagnation_level=float(self.homeostasis.stagnation_level),
                 inner_speech=synth_sp,
-                field_map=self.hippo.field_map,
+                field_map=None if is_autonomous_neural else self.hippo.field_map,
             )
-            strat_cur_m = float(st_out["curiosity_mult"])
-            strat_obj_m = float(st_out["objective_mult"])
-            strat_caut_d = float(st_out["caution_delta"])
-            strat_peace_mode = st_out["peace_goal_mode_override"]
+            human_ov = bool(st_out.get("human_override", False))
+            if is_autonomous_neural and not human_ov:
+                self.hippo.field_map.set_strategic_lane_weights(1.0, 1.0, 1.0)
+            else:
+                if is_autonomous_neural and human_ov:
+                    lw_h = st_out.get("lane_weights", (1.0, 1.0, 1.0))
+                    self.hippo.field_map.set_strategic_lane_weights(float(lw_h[0]), float(lw_h[1]), float(lw_h[2]))
+                strat_cur_m = float(st_out["curiosity_mult"])
+                strat_obj_m = float(st_out["objective_mult"])
+                strat_caut_d = float(st_out["caution_delta"])
+                strat_peace_mode = st_out["peace_goal_mode_override"]
             self.latest_strategy_tag = self.strategy_ctrl.format_hud_status_tag()
 
         if gwt_out is not None:
@@ -3562,6 +3573,10 @@ def run_arena_spectate_coordinator(
         init_genes = dict(PBT_ARCHETYPES[0])
         if isinstance(meta_a.get("genes"), dict):
             init_genes.update(meta_a["genes"])
+        if "scaffold_prior_scale" in meta_a:
+            init_genes["scaffold_prior_scale"] = float(meta_a["scaffold_prior_scale"])
+        elif "scaffold_prior_scale" not in init_genes and int(meta_a.get("train_steps_done", 0)) >= 150:
+            init_genes["scaffold_prior_scale"] = 0.0
 
         gen_cmd_q.put({
             "cmd": "run_gen",

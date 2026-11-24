@@ -2063,6 +2063,7 @@ class RuntimeStrategyController:
             "objective_mult": float(self.active_slice.objective_mult),
             "stealth_mult": float(self.active_slice.stealth_mult),
             "caution_delta": float(self.active_slice.caution_delta),
+            "human_override": bool(self._human_override_active_in_ep),
             "peace_goal_mode_override": peace_mode_override,
             "in_immediate_combat": in_immediate_combat,
             "reanchor_events_in_ep": int(self.reanchor_events_in_ep),
